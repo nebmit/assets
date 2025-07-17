@@ -1,0 +1,4 @@
+{
+	"$schema": "https://inlang.com/schema/inlang-message-format",
+	"hello_world": "こんにちは、{name} さん（日本語）！"
+}
