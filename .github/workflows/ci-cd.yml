@@ -93,16 +93,16 @@ jobs:
       with:
         sarif_file: 'trivy-results.sarif'
 
-    dispatch-deploy:
-      needs: build-and-push
-      if: github.ref == 'refs/heads/main'
-      runs-on: ubuntu-latest
+  dispatch-deploy:
+    needs: build-and-push
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
 
-      steps:
-        - name: Notify infra repo
-          uses: peter-evans/repository-dispatch@v3
-          with:
-            repository: nebmit/infra
-            event-type: assets-deploy
-            client-payload: '{"sha":"${{ github.sha }}"}'
-            token: ${{ secrets.INFRA_DISPATCH_PAT }}
+    steps:
+      - name: Notify infra repo
+        uses: peter-evans/repository-dispatch@v3
+        with:
+          repository: nebmit/infra
+          event-type: assets-deploy
+          client-payload: '{"sha":"${{ github.sha }}"}'
+          token: ${{ secrets.INFRA_DISPATCH_PAT }}
