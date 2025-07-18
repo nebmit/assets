@@ -68,7 +68,6 @@ jobs:
           type=ref,event=pr
           type=sha,prefix={{branch}}-
           type=raw,value=latest,enable={{is_default_branch}}
-        outputs: type=image,name=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }},push=true
 
 
     - name: Build and push Docker image
@@ -106,5 +105,5 @@ jobs:
         with:
           repository: nebmit/infra
           event-type: assets-deploy
-          client-payload: '{"digest":"${{ steps.build.outputs.digest }}"}'
+          client-payload: '{"tag":"${{ steps.meta.outputs.version }}"}'
           token: ${{ secrets.INFRA_DISPATCH_PAT }}
