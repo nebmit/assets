@@ -13,6 +13,10 @@ RUN npm ci --only=production=false
 # Copy source code
 COPY . .
 
+# Generate paraglide files
+RUN npm run prepare || true
+RUN npx svelte-kit sync
+
 # Build the application
 RUN npm run build
 
