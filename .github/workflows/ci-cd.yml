@@ -93,35 +93,16 @@ jobs:
       with:
         sarif_file: 'trivy-results.sarif'
 
-  deploy:
-    needs: build-and-push
-    runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main'
-    
-    steps:
-    - name: Deploy to server
-      uses: appleboy/ssh-action@v1.2.2
-      with:
-        host: ${{ secrets.HOST }}
-        username: ${{ secrets.USERNAME }}
-        key: ${{ secrets.SSH_PRIVATE_KEY }}
-        port: ${{ secrets.PORT || 22 }}
-        script: |
-          # Pull the latest image
-          docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
-          
-          # Stop and remove existing container
-          docker stop assets-app || true
-          docker rm assets-app || true
-          
-          # Run new container
-          docker run -d \
-            --name assets-app \
-            --restart unless-stopped \
-            -p 3000:3000 \
-            -e NODE_ENV=production \
-            -e PORT=3000 \
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
-          
-          # Clean up old images
-          docker image prune -f
+    dispatch-deploy:
+      needs: build-and-push
+      if: github.ref == 'refs/heads/main'
+      runs-on: ubuntu-latest
+
+      steps:
+        - name: Notify infra repo
+          uses: peter-evans/repository-dispatch@v3
+          with:
+            repository: nebmit/infra
+            event-type: assets-deploy
+            client-payload: '{"sha":"${{ github.sha }}"}'
+            token: ${{ secrets.INFRA_DISPATCH_PAT }}

@@ -13,10 +13,6 @@ services:
       - PORT=3000
     # - BACKEND_URL=${BACKEND_URL}
     # - API_KEY=${API_KEY}
-    volumes:
-    # Uncomment for development with hot reload
-    #  - .:/app
-    #  - /app/node_modules
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "node", "-e", "require('http').get('http://localhost:3000', (res) => { process.exit(res.statusCode === 200 ? 0 : 1) })"]
