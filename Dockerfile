@@ -1,5 +1,8 @@
-# Build Stage
-FROM cgr.dev/chainguard/node:latest AS builder
+# Build Stage - use standard Node.js for build
+FROM node:22-alpine AS builder
+
+# Install security updates
+RUN apk update && apk upgrade && apk add --no-cache dumb-init
 
 # Set working directory
 WORKDIR /app
@@ -8,7 +11,7 @@ WORKDIR /app
 COPY package*.json ./
 
 # Install dependencies
-RUN npm ci --only=production=false
+RUN npm ci
 
 # Copy source code
 COPY . .
@@ -20,7 +23,7 @@ RUN npx svelte-kit sync
 # Build the application
 RUN npm run build
 
-# Production stage
+# Production stage - use Chainguard for runtime security
 FROM cgr.dev/chainguard/node:latest AS runtime
 
 # Set working directory
