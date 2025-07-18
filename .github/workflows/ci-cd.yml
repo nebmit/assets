@@ -37,6 +37,9 @@ jobs:
     needs: test
     runs-on: ubuntu-latest
     if: github.ref == 'refs/heads/main'
+
+    outputs:
+      version: ${{ steps.version.outputs.version }}
     
     permissions:
       contents: read
@@ -69,6 +72,14 @@ jobs:
           type=sha,prefix={{branch}}-
           type=raw,value=latest,enable={{is_default_branch}}
 
+    - name: Derive short version tag
+      id: version
+      run: |
+        BRANCH_NAME="${GITHUB_REF##*/}"
+        TAG=$(echo "$TAGS" | grep "^${BRANCH_NAME}-" || true)
+        echo "version=$TAG" >> $GITHUB_OUTPUT
+      env:
+        TAGS: ${{ steps.meta.outputs.tags }}
 
     - name: Build and push Docker image
       uses: docker/build-push-action@v6
@@ -105,5 +116,5 @@ jobs:
         with:
           repository: nebmit/infra
           event-type: assets-deploy
-          client-payload: '{"tag":"${{ steps.meta.outputs.version }}"}'
+          client-payload: '{"tag":"${{ needs.build-and-push.outputs.version }}"}'
           token: ${{ secrets.INFRA_DISPATCH_PAT }}
