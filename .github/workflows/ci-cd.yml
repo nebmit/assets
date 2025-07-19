@@ -111,10 +111,15 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      - name: Debug version output
+        run: |
+          echo "Version from build job: ${{ needs.build-and-push.outputs.version }}"
+          echo "Will use fallback if empty: ${{ needs.build-and-push.outputs.version || format('main-{0}', github.sha) }}"
+      
       - name: Notify infra repo
         uses: peter-evans/repository-dispatch@v3
         with:
           repository: nebmit/infra
           event-type: assets-deploy
-          client-payload: '{"tag":"${{ needs.build-and-push.outputs.version }}"}'
+          client-payload: '{"tag":"${{ needs.build-and-push.outputs.version || format(''main-{0}'', github.sha) }}"}'
           token: ${{ secrets.INFRA_DISPATCH_PAT }}
