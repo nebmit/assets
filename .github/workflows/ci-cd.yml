@@ -72,14 +72,6 @@ jobs:
         tags: |
           type=sha,prefix={{branch}}-
           type=raw,value=latest,enable={{is_default_branch}}
-        labels: |
-          org.opencontainers.image.title={{.Name}}
-          org.opencontainers.image.description={{.Description}}
-          org.opencontainers.image.url={{.URL}}
-          org.opencontainers.image.source={{.SourceURL}}
-          org.opencontainers.image.version={{.Version}}
-          org.opencontainers.image.created={{.Date}}
-          org.opencontainers.image.revision={{.FullCommit}}
 
     - name: Extract deployment tag
       id: version
