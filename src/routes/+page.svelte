@@ -476,7 +476,14 @@
 			const challenge = rand(32);
 			const testSalt = stringToUint8Array("test-prf-support");
 
-			const getCredentialOptions = {
+			// Find the most recent credential to determine authenticator preference
+			const mostRecentCred = savedCredentials.sort(
+				(a, b) =>
+					new Date(b.createdAt).getTime() -
+					new Date(a.createdAt).getTime(),
+			)[0];
+
+			const getCredentialOptions: any = {
 				publicKey: {
 					challenge: challenge,
 					userVerification: "required" as const,
@@ -490,6 +497,37 @@
 					},
 				},
 			};
+
+			// If we have a recent credential with a known authenticator type, prefer that
+			if (
+				mostRecentCred?.authenticatorType &&
+				mostRecentCred.authenticatorType !== "any"
+			) {
+				getCredentialOptions.publicKey.authenticatorSelection = {
+					authenticatorAttachment:
+						mostRecentCred.authenticatorType === "platform"
+							? "platform"
+							: "cross-platform",
+					userVerification: "required",
+				};
+				log(
+					"info",
+					`Preferring ${mostRecentCred.authenticatorType} authenticator based on most recent credential`,
+				);
+			}
+
+			// If we have saved credentials, specify them to avoid prompting for hardware keys unnecessarily
+			if (savedCredentials.length > 0) {
+				getCredentialOptions.publicKey.allowCredentials =
+					savedCredentials.map((cred) => ({
+						type: "public-key" as const,
+						id: base64urlToUint8Array(cred.id),
+					}));
+				log(
+					"info",
+					`Allowing ${savedCredentials.length} specific saved credentials`,
+				);
+			}
 
 			log("info", "Authentication options", getCredentialOptions);
 
