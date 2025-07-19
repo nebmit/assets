@@ -300,6 +300,11 @@
 		log("info", "Feature detection complete", { features, debugInfo });
 	});
 
+	const authenticatorSelection: any = {
+		userVerification: "required",
+		residentKey: "required",
+	};
+
 	/* ---------- register new passkey ---------- */
 	async function registerPasskey() {
 		status = "Registering passkey...";
@@ -310,11 +315,6 @@
 		try {
 			const challenge = rand(32);
 			const userId = rand(64);
-
-			const authenticatorSelection: any = {
-				userVerification: "required",
-				residentKey: "required",
-			};
 
 			if (selectedAuthenticatorType === "platform") {
 				authenticatorSelection.authenticatorAttachment = "platform";
@@ -437,6 +437,7 @@
 						},
 					},
 				},
+				authenticatorSelection: authenticatorSelection,
 			},
 		};
 
@@ -476,13 +477,6 @@
 			const challenge = rand(32);
 			const testSalt = stringToUint8Array("test-prf-support");
 
-			// Find the most recent credential to determine authenticator preference
-			const mostRecentCred = savedCredentials.sort(
-				(a, b) =>
-					new Date(b.createdAt).getTime() -
-					new Date(a.createdAt).getTime(),
-			)[0];
-
 			const getCredentialOptions: any = {
 				publicKey: {
 					challenge: challenge,
@@ -495,26 +489,9 @@
 							},
 						},
 					},
+					authenticatorSelection: authenticatorSelection,
 				},
 			};
-
-			// If we have a recent credential with a known authenticator type, prefer that
-			if (
-				mostRecentCred?.authenticatorType &&
-				mostRecentCred.authenticatorType !== "any"
-			) {
-				getCredentialOptions.publicKey.authenticatorSelection = {
-					authenticatorAttachment:
-						mostRecentCred.authenticatorType === "platform"
-							? "platform"
-							: "cross-platform",
-					userVerification: "required",
-				};
-				log(
-					"info",
-					`Preferring ${mostRecentCred.authenticatorType} authenticator based on most recent credential`,
-				);
-			}
 
 			// If we have saved credentials, specify them to avoid prompting for hardware keys unnecessarily
 			if (savedCredentials.length > 0) {
@@ -640,6 +617,7 @@
 						},
 					},
 				},
+				authenticatorSelection: authenticatorSelection,
 			} as any;
 
 			log("info", "Making PRF request with options", publicKey);
