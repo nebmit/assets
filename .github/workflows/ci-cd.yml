@@ -39,7 +39,10 @@ jobs:
     if: github.ref == 'refs/heads/main'
 
     outputs:
-      version: ${{ steps.version.outputs.version }}
+      image-digest: ${{ steps.build.outputs.digest }}
+      image-tag: ${{ steps.version.outputs.version }}
+      registry: ${{ env.REGISTRY }}
+      image-name: ${{ env.IMAGE_NAME }}
     
     permissions:
       contents: read
@@ -67,21 +70,33 @@ jobs:
       with:
         images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
         tags: |
-          type=ref,event=branch
-          type=ref,event=pr
           type=sha,prefix={{branch}}-
           type=raw,value=latest,enable={{is_default_branch}}
+        labels: |
+          org.opencontainers.image.title={{.Name}}
+          org.opencontainers.image.description={{.Description}}
+          org.opencontainers.image.url={{.URL}}
+          org.opencontainers.image.source={{.SourceURL}}
+          org.opencontainers.image.version={{.Version}}
+          org.opencontainers.image.created={{.Date}}
+          org.opencontainers.image.revision={{.FullCommit}}
 
-    - name: Derive short version tag
+    - name: Extract deployment tag
       id: version
       run: |
-        BRANCH_NAME="${GITHUB_REF##*/}"
-        TAG=$(echo "$TAGS" | grep "^${BRANCH_NAME}-" || true)
-        echo "version=$TAG" >> $GITHUB_OUTPUT
-      env:
-        TAGS: ${{ steps.meta.outputs.tags }}
+        # Extract the SHA-based tag for deployment
+        TAGS="${{ steps.meta.outputs.tags }}"
+        DEPLOYMENT_TAG=$(echo "$TAGS" | grep -E "main-[a-f0-9]{7}$" | head -1)
+        if [ -z "$DEPLOYMENT_TAG" ]; then
+          # Fallback: extract just the tag part after the last :
+          DEPLOYMENT_TAG=$(echo "$TAGS" | head -1 | sed 's/.*://')
+        fi
+        echo "version=$DEPLOYMENT_TAG" >> $GITHUB_OUTPUT
+        echo "Deployment tag: $DEPLOYMENT_TAG"
+        echo "All generated tags: $TAGS"
 
     - name: Build and push Docker image
+      id: build
       uses: docker/build-push-action@v6
       with:
         context: .
@@ -95,7 +110,7 @@ jobs:
     - name: Run Trivy vulnerability scanner
       uses: aquasecurity/trivy-action@master
       with:
-        image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+        image-ref: ${{ fromJSON(steps.meta.outputs.json).tags[0] }}
         format: 'sarif'
         output: 'trivy-results.sarif'
 
@@ -111,15 +126,23 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Debug version output
+      - name: Debug deployment info
         run: |
-          echo "Version from build job: ${{ needs.build-and-push.outputs.version }}"
-          echo "Will use fallback if empty: ${{ needs.build-and-push.outputs.version || format('main-{0}', github.sha) }}"
+          echo "Image digest: ${{ needs.build-and-push.outputs.image-digest }}"
+          echo "Image tag: ${{ needs.build-and-push.outputs.image-tag }}"
+          echo "Full image: ${{ needs.build-and-push.outputs.registry }}/${{ needs.build-and-push.outputs.image-name }}:${{ needs.build-and-push.outputs.image-tag }}"
+          echo "Image by digest: ${{ needs.build-and-push.outputs.registry }}/${{ needs.build-and-push.outputs.image-name }}@${{ needs.build-and-push.outputs.image-digest }}"
       
       - name: Notify infra repo
         uses: peter-evans/repository-dispatch@v3
         with:
           repository: nebmit/infra
           event-type: assets-deploy
-          client-payload: '{"tag":"${{ needs.build-and-push.outputs.version || format(''main-{0}'', github.sha) }}"}'
+          client-payload: |
+            {
+              "tag": "${{ needs.build-and-push.outputs.image-tag }}",
+              "digest": "${{ needs.build-and-push.outputs.image-digest }}",
+              "image": "${{ needs.build-and-push.outputs.registry }}/${{ needs.build-and-push.outputs.image-name }}",
+              "commit": "${{ github.sha }}"
+            }
           token: ${{ secrets.INFRA_DISPATCH_PAT }}
