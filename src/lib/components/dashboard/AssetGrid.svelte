@@ -53,11 +53,24 @@
 </script>
 
 <div class="pt-4">
-    <div class="flex justify-between items-center mb-6">
-        <div class="flex items-center gap-6">
+    <div class="mb-6">
+        <!-- Header row with title and edit button -->
+        <div class="flex justify-between items-center mb-4">
             <h2 class="text-lg font-light text-base-content/80">Your Assets</h2>
-            <!-- Clean Sort Toggle Buttons -->
-            <div class="flex items-center gap-1">
+            <button
+                class="text-sm text-base-content/60 hover:text-primary transition-colors duration-200 underline decoration-dotted underline-offset-4 hover:decoration-solid"
+                on:click={onEdit}
+            >
+                Edit portfolio
+            </button>
+        </div>
+
+        <!-- Sort controls row - responsive layout -->
+        <div class="flex flex-wrap items-center gap-3 sm:gap-1">
+            <span class="text-sm text-base-content/60 mr-2 hidden sm:inline"
+                >Sort by:</span
+            >
+            <div class="flex items-center gap-1 flex-wrap">
                 <button
                     class="px-2 py-1 text-sm transition-all duration-200 rounded-md {sortBy ===
                     'value'
@@ -69,7 +82,7 @@
                             >{sortAscending ? "↑" : "↓"}</span
                         >{/if}
                 </button>
-                <span class="text-base-content/30">•</span>
+                <span class="text-base-content/30 hidden sm:inline">•</span>
                 <button
                     class="px-2 py-1 text-sm transition-all duration-200 rounded-md {sortBy ===
                     'change'
@@ -81,7 +94,7 @@
                             >{sortAscending ? "↑" : "↓"}</span
                         >{/if}
                 </button>
-                <span class="text-base-content/30">•</span>
+                <span class="text-base-content/30 hidden sm:inline">•</span>
                 <button
                     class="px-2 py-1 text-sm transition-all duration-200 rounded-md {sortBy ===
                     'name'
@@ -95,12 +108,6 @@
                 </button>
             </div>
         </div>
-        <button
-            class="text-sm text-base-content/60 hover:text-primary transition-colors duration-200 underline decoration-dotted underline-offset-4 hover:decoration-solid"
-            on:click={onEdit}
-        >
-            Edit portfolio
-        </button>
     </div>
     <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
         {#each sortedAssets as asset (asset.id)}
