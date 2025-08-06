@@ -2,6 +2,7 @@
     import DataExportModal from "../DataExportModal.svelte";
     import PasswordMigrationModal from "../PasswordMigrationModal.svelte";
     import UserSection from "./UserSection.svelte";
+    import { authStore } from "$lib/stores/authStore";
 
     export let user: { id: string; isLoggedIn: boolean };
 
@@ -14,8 +15,7 @@
     }
 
     function handleLogout() {
-        console.log("Logout");
-        // TODO: Handle logout
+        authStore.logout();
     }
 
     function handleDataExport() {
