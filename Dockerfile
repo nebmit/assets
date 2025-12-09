@@ -2,7 +2,7 @@
 FROM node:22-alpine AS builder
 
 # Install security updates
-RUN apk update && apk upgrade && apk add --no-cache dumb-init
+RUN apk add --no-cache dumb-init
 
 # Set working directory
 WORKDIR /app
