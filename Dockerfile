@@ -1,8 +1,8 @@
 # Build Stage - use standard Node.js for build
-FROM node:22-alpine AS builder
+FROM node:22-bookworm-slim AS builder
 
-# Install security updates
-RUN apk add --no-cache dumb-init
+# Install security updates and dumb-init
+RUN apt-get update && apt-get install -y --no-install-recommends dumb-init
 
 # Set working directory
 WORKDIR /app
