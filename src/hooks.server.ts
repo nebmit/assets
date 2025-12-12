@@ -50,9 +50,9 @@ function isProtectedRoute(pathname: string): boolean {
 	return !publicRoutes.includes(pathname);
 }
 
-async function validateToken(token: string | undefined): Promise<{ uuid: string } | false> {
+async function validateToken(token: string | undefined): Promise<{ uuid: string } | null> {
 	if (!token || !AUTH_URL) {
-		return false;
+		return null;
 	}
 
 	try {
@@ -65,7 +65,7 @@ async function validateToken(token: string | undefined): Promise<{ uuid: string 
 		});
 
 		if (!response.ok) {
-			return false;
+			return null;
 		}
 
 		const content = await response.json();
@@ -74,11 +74,11 @@ async function validateToken(token: string | undefined): Promise<{ uuid: string 
 			return content.user;
 		}
 
-		return false;
+		return null;
 	} catch (error) {
 		// Log only error type to avoid exposing sensitive information
 		console.error('Token validation failed:', error instanceof Error ? error.name : 'Unknown error');
-		return false;
+		return null;
 	}
 }
 

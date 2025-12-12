@@ -7,7 +7,7 @@
 
 	// If user is authenticated on the server, update the auth store
 	onMount(() => {
-		if (data?.user?.isAuthenticated) {
+		if (data && data.user && data.user.isAuthenticated) {
 			// User is authenticated via SSO - skip to encryption step
 			authStore.handleSSOCallback(data.user);
 		}
