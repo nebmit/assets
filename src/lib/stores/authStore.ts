@@ -75,8 +75,9 @@ function createAuthStore() {
                     throw new Error('LOGIN_URL not configured');
                 }
 
-                // Construct redirect URL
-                const redirectUrl = `${LOGIN_URL}?redirect_uri=${encodeURIComponent(window.location.href)}`;
+                // Use relative path as redirect_uri to prevent open redirect vulnerabilities
+                const currentPath = window.location.pathname + window.location.search;
+                const redirectUrl = `${LOGIN_URL}?redirect_uri=${encodeURIComponent(currentPath)}`;
                 
                 // Redirect to SSO provider
                 window.location.href = redirectUrl;

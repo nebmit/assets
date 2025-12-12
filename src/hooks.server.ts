@@ -19,7 +19,9 @@ const handleAuth: Handle = async ({ event, resolve }) => {
 	
 	// Check if this is a protected route
 	if (!sessionId && isProtectedRoute(event.url.pathname)) {
-		throw redirect(303, `${LOGIN_URL}?redirect_uri=${event.url.href}`);
+		// Validate and use a relative redirect URI to prevent open redirects
+		const redirectUri = encodeURIComponent(event.url.pathname + event.url.search);
+		throw redirect(303, `${LOGIN_URL}?redirect_uri=${redirectUri}`);
 	}
 
 	// Validate the session token
@@ -32,9 +34,10 @@ const handleAuth: Handle = async ({ event, resolve }) => {
 			}
 		};
 	} else {
-		// If token is invalid and route is protected, redirect to login
+		// If token is invalid and route is protected, redirect to login with current path
 		if (isProtectedRoute(event.url.pathname)) {
-			throw redirect(303, '/');
+			const redirectUri = encodeURIComponent(event.url.pathname + event.url.search);
+			throw redirect(303, `${LOGIN_URL}?redirect_uri=${redirectUri}`);
 		}
 	}
 
@@ -53,6 +56,8 @@ async function validateToken(token: string | undefined): Promise<{ uuid: string 
 	}
 
 	try {
+		// Session tokens from cookies are sent directly in the Authorization header
+		// The auth provider will validate the session token format
 		const response = await fetch(AUTH_URL, {
 			headers: {
 				'Authorization': `Bearer ${token}`
@@ -71,7 +76,8 @@ async function validateToken(token: string | undefined): Promise<{ uuid: string 
 
 		return false;
 	} catch (error) {
-		console.error('Token validation error:', error);
+		// Log only error type to avoid exposing sensitive information
+		console.error('Token validation failed:', error instanceof Error ? error.name : 'Unknown error');
 		return false;
 	}
 }
