@@ -68,20 +68,21 @@ function createAuthStore() {
             setLoading(true);
 
             try {
-                // Simulate passkey authentication
-                await simulateDelay(SIMULATION_DELAYS.SSO_AUTH);
+                // Redirect to SSO login - this will be handled by the LOGIN_URL
+                // The user will be redirected back after successful authentication
+                const LOGIN_URL = import.meta.env.VITE_LOGIN_URL;
+                if (!LOGIN_URL) {
+                    throw new Error('LOGIN_URL not configured');
+                }
 
-                // Check if user has existing encrypted data and get derivation method
-                const userData = await this.checkUserEncryptionStatus();
-                const user = createUser(USER_IDS.REGULAR, userData);
-
-                updateState({
-                    user,
-                    isLoading: false,
-                    authStep: userData.hasEncryptedData ? 'encryption-unlock' : 'encryption-setup'
-                });
-
-                return user;
+                // Construct redirect URL
+                const redirectUrl = `${LOGIN_URL}?redirect_uri=${encodeURIComponent(window.location.href)}`;
+                
+                // Redirect to SSO provider
+                window.location.href = redirectUrl;
+                
+                // Note: This function won't return as we're redirecting away
+                // When user returns, they'll have a session cookie set by the auth provider
             } catch (error) {
                 setError(ERROR_MESSAGES.AUTH_FAILED);
                 throw error;
@@ -332,6 +333,28 @@ function createAuthStore() {
                     isLoading: false,
                     error: 'Failed to enter demo mode'
                 }));
+                throw error;
+            }
+        },
+
+        // Handle SSO callback after successful authentication
+        async handleSSOCallback(serverUser: { isAuthenticated: boolean; uuid: string }) {
+            setLoading(true);
+
+            try {
+                // Check if user has existing encrypted data and get derivation method
+                const userData = await this.checkUserEncryptionStatus();
+                const user = createUser(serverUser.uuid, userData);
+
+                updateState({
+                    user,
+                    isLoading: false,
+                    authStep: userData.hasEncryptedData ? 'encryption-unlock' : 'encryption-setup'
+                });
+
+                return user;
+            } catch (error) {
+                setError(ERROR_MESSAGES.AUTH_FAILED);
                 throw error;
             }
         },

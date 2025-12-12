@@ -1,22 +1,45 @@
-# sv
+# assets
 
-Everything you need to build a Svelte project, powered by [`sv`](https://github.com/sveltejs/cli).
+Secure portfolio management application with SSO authentication.
 
-## Creating a project
+## Prerequisites
 
-If you're seeing this, you've probably already done this step. Congrats!
+Ensure you have the latest LTS version of Node.js installed.
+
+## Getting Started
+
+### Installation
+
+1. Clone the repository and install dependencies:
 
 ```bash
-# create a new project in the current directory
-npx sv create
-
-# create a new project in my-app
-npx sv create my-app
+git clone https://github.com/nebmit/assets.git
+cd assets
+npm install
 ```
+
+2. Configure environment variables:
+
+Create a `.env` file in the root directory with the following variables:
+
+```env
+# Authentication Configuration (Required)
+VITE_AUTH_URL=https://your-auth-domain.com/auth
+VITE_LOGIN_URL=https://your-auth-domain.com/login
+
+# Application Configuration (Optional)
+# PORT=3000
+# ORIGIN=http://localhost:3000
+```
+
+- `VITE_AUTH_URL`: URL for token validation endpoint
+- `VITE_LOGIN_URL`: URL for SSO login redirect
+
+Refer to `.env.example` for a template.
 
 ## Developing
 
-Once you've created a project and installed dependencies with `npm install` (or `pnpm install` or `yarn`), start a development server:
+Start a development server:
 
 ```bash
 npm run dev
@@ -35,4 +58,16 @@ npm run build
 
 You can preview the production build with `npm run preview`.
 
-> To deploy your app, you may need to install an [adapter](https://svelte.dev/docs/kit/adapters) for your target environment.
+## Authentication
+
+This application uses SSO (Single Sign-On) authentication with passkey support. The authentication flow:
+
+1. User clicks "Sign In / Register" button
+2. User is redirected to the SSO provider (configured via `VITE_LOGIN_URL`)
+3. After successful authentication, user is redirected back with a session cookie
+4. The application validates the session token against the auth provider (`VITE_AUTH_URL`)
+5. User proceeds to encryption setup or unlock based on their account status
+
+## Deployment
+
+The application uses `@sveltejs/adapter-node` for deployment. Ensure your deployment environment has the necessary environment variables configured.
