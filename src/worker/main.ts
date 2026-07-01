@@ -5,6 +5,8 @@
  *   report [--screen=x] [--date=..]         print ranked signals
  *   migrate             apply pending DB migrations
  */
+import { Cron } from 'croner';
+import { config } from '../lib/server/config.js';
 import { closeDb, getDb, runMigrations } from '../lib/server/db/index.js';
 import { allJobs, findJob } from '../lib/server/pipeline/jobs.js';
 import { runJobs } from '../lib/server/pipeline/runner.js';
@@ -15,19 +17,39 @@ function arg(name: string): string | undefined {
 	return process.argv.find((a) => a.startsWith(prefix))?.slice(prefix.length);
 }
 
-async function runOnce(): Promise<boolean> {
-	const jobArg = arg('job') ?? 'all';
-	const runDate = arg('date') ?? isoDate();
-	const jobs = jobArg === 'all' ? allJobs : [findJob(jobArg) ?? fail(`unknown job "${jobArg}"`)];
-	await runMigrations();
-	const results = await runJobs(getDb(), jobs, runDate);
-	const failed = results.filter((r) => !r.ok);
-	console.log(`run ${runDate}: ${results.length - failed.length}/${results.length} jobs succeeded`);
-	return failed.length === 0;
-}
-
 function fail(message: string): never {
 	throw new Error(message);
+}
+
+async function runPipeline(jobNames: 'all' | string, runDate: string): Promise<boolean> {
+	const jobs = jobNames === 'all' ? allJobs : [findJob(jobNames) ?? fail(`unknown job "${jobNames}"`)];
+	const results = await runJobs(getDb(), jobs, runDate);
+	const failures = results.filter((r) => !r.ok).length;
+	console.log(`run ${runDate}: ${results.length - failures}/${results.length} jobs succeeded`);
+	return failures === 0;
+}
+
+async function schedule(): Promise<void> {
+	await runMigrations();
+	const { INGEST_CRON, TZ } = config();
+	const cron = new Cron(INGEST_CRON, { timezone: TZ, protect: true }, async () => {
+		try {
+			await runPipeline('all', isoDate(new Date(), TZ));
+		} catch (err) {
+			console.error('scheduled run failed:', err);
+		}
+	});
+	console.log(`scheduler started: "${INGEST_CRON}" (${TZ}), next run ${cron.nextRun()?.toISOString()}`);
+
+	await new Promise<void>((resolve) => {
+		const stop = () => {
+			console.log('shutting down');
+			cron.stop();
+			resolve();
+		};
+		process.on('SIGTERM', stop);
+		process.on('SIGINT', stop);
+	});
 }
 
 async function main(): Promise<void> {
@@ -38,9 +60,12 @@ async function main(): Promise<void> {
 			console.log('migrations applied');
 			break;
 		case 'run':
-			if (!(await runOnce())) process.exitCode = 1;
+			await runMigrations();
+			if (!(await runPipeline(arg('job') ?? 'all', arg('date') ?? isoDate()))) process.exitCode = 1;
 			break;
 		case 'schedule':
+			await schedule();
+			break;
 		case 'report':
 			throw new Error(`command "${command}" not implemented yet`);
 		default:
