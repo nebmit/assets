@@ -1,0 +1,136 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v6
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v6
+      with:
+        node-version: '20'
+        cache: 'npm'
+
+    - name: Install dependencies
+      run: npm ci
+
+    - name: Build application (generates paraglide files)
+      run: npm run build
+
+    - name: Run type checking
+      run: npm run check
+
+  build-and-push:
+    needs: test
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+
+    outputs:
+      image-digest: ${{ steps.build.outputs.digest }}
+      image-tag: ${{ steps.version.outputs.version }}
+      registry: ${{ env.REGISTRY }}
+      image-name: ${{ env.IMAGE_NAME }}
+    
+    permissions:
+      contents: read
+      packages: write
+      security-events: write
+      actions: read
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v6
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v4
+
+    - name: Log in to Container Registry
+      uses: docker/login-action@v4
+      with:
+        registry: ${{ env.REGISTRY }}
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Extract metadata
+      id: meta
+      uses: docker/metadata-action@v6
+      with:
+        images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+        tags: |
+          type=sha,prefix={{branch}}-
+          type=raw,value=latest,enable={{is_default_branch}}
+
+    - name: Extract deployment tag
+      id: version
+      run: |
+        # Extract the SHA-based tag for deployment
+        TAGS="${{ steps.meta.outputs.tags }}"
+        DEPLOYMENT_TAG=$(echo "$TAGS" | grep -E "main-[a-f0-9]{7}$" | head -1)
+        if [ -z "$DEPLOYMENT_TAG" ]; then
+          # Fallback: extract just the tag part after the last :
+          DEPLOYMENT_TAG=$(echo "$TAGS" | head -1 | sed 's/.*://')
+        fi
+        echo "version=$DEPLOYMENT_TAG" >> $GITHUB_OUTPUT
+        echo "Deployment tag: $DEPLOYMENT_TAG"
+        echo "All generated tags: $TAGS"
+
+    - name: Build and push Docker image
+      id: build
+      uses: docker/build-push-action@v7
+      with:
+        context: .
+        platforms: linux/amd64,linux/arm64
+        push: true
+        tags: ${{ steps.meta.outputs.tags }}
+        labels: ${{ steps.meta.outputs.labels }}
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+
+    - name: Run Trivy vulnerability scanner
+      uses: aquasecurity/trivy-action@v0.36.0
+      env:
+        TRIVY_USERNAME: ${{ github.actor }}
+        TRIVY_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        image-ref: ${{ fromJSON(steps.meta.outputs.json).tags[0] }}
+        format: 'sarif'
+        output: 'trivy-results.sarif'
+
+    - name: Upload Trivy scan results to GitHub Security tab
+      uses: github/codeql-action/upload-sarif@v4
+      with:
+        sarif_file: 'trivy-results.sarif'
+
+  dispatch-deploy:
+    needs: build-and-push
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Debug deployment info
+        run: |
+          echo "Image digest: ${{ needs.build-and-push.outputs.image-digest }}"
+          echo "Image tag: ${{ needs.build-and-push.outputs.image-tag }}"
+          echo "Full image: ${{ needs.build-and-push.outputs.registry }}/${{ needs.build-and-push.outputs.image-name }}:${{ needs.build-and-push.outputs.image-tag }}"
+          echo "Image by digest: ${{ needs.build-and-push.outputs.registry }}/${{ needs.build-and-push.outputs.image-name }}@${{ needs.build-and-push.outputs.image-digest }}"
+      
+      - name: Notify infra repo
+        uses: peter-evans/repository-dispatch@v4
+        with:
+          repository: nebmit/infra
+          event-type: app-deploy
+          client-payload: '{"app":"assets","digest":"${{ needs.build-and-push.outputs.image-digest }}"}'
+          token: ${{ secrets.INFRA_DISPATCH_PAT }}
