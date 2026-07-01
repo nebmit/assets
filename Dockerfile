@@ -16,11 +16,9 @@ RUN npm ci
 # Copy source code
 COPY . .
 
-# Generate paraglide files
-RUN npm run prepare || true
 RUN npx svelte-kit sync
 
-# Build the application
+# Build the application (web server + worker bundle)
 RUN npm run build
 
 # Production stage - use Chainguard for runtime security
@@ -31,6 +29,7 @@ WORKDIR /app
 
 # Copy built application from builder stage
 COPY --from=builder /app/build build/
+COPY --from=builder /app/drizzle drizzle/
 COPY --from=builder /app/node_modules node_modules/
 COPY --from=builder /app/package.json .
 COPY --from=builder /usr/bin/dumb-init /usr/bin/dumb-init
