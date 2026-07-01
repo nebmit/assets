@@ -2,7 +2,7 @@ CREATE TYPE "public"."fundamental_source" AS ENUM('boerse_frankfurt', 'esef');--
 CREATE TYPE "public"."market_index" AS ENUM('DAX', 'MDAX', 'SDAX');--> statement-breakpoint
 CREATE TYPE "public"."party_role" AS ENUM('executive_board', 'supervisory_board', 'related_party', 'other');--> statement-breakpoint
 CREATE TYPE "public"."run_status" AS ENUM('running', 'success', 'error');--> statement-breakpoint
-CREATE TYPE "public"."transaction_side" AS ENUM('buy', 'sell');--> statement-breakpoint
+CREATE TYPE "public"."transaction_side" AS ENUM('buy', 'sell', 'other');--> statement-breakpoint
 CREATE TABLE "eod_price" (
 	"instrument_id" integer NOT NULL,
 	"trade_date" date NOT NULL,
@@ -56,6 +56,7 @@ CREATE TABLE "insider_transaction" (
 	"party_name" text,
 	"party_role" "party_role" DEFAULT 'other' NOT NULL,
 	"side" "transaction_side" NOT NULL,
+	"instrument_type" text,
 	"price" numeric,
 	"volume" numeric,
 	"amount" numeric,

@@ -1,5 +1,5 @@
 {
-  "id": "7fbbb9a4-c8bf-4800-86ea-1a61efbcd240",
+  "id": "ff8c0d3e-490a-4cc6-9741-5850cb5d0519",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "version": "7",
   "dialect": "postgresql",
@@ -431,6 +431,12 @@
           "typeSchema": "public",
           "primaryKey": false,
           "notNull": true
+        },
+        "instrument_type": {
+          "name": "instrument_type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
         },
         "price": {
           "name": "price",
@@ -1010,7 +1016,8 @@
       "schema": "public",
       "values": [
         "buy",
-        "sell"
+        "sell",
+        "other"
       ]
     }
   },

@@ -16,7 +16,8 @@ import {
 } from 'drizzle-orm/pg-core';
 
 export const marketIndexEnum = pgEnum('market_index', ['DAX', 'MDAX', 'SDAX']);
-export const sideEnum = pgEnum('transaction_side', ['buy', 'sell']);
+// 'other' covers BaFin's "Sonstiges" (share awards, option exercises, …)
+export const sideEnum = pgEnum('transaction_side', ['buy', 'sell', 'other']);
 export const partyRoleEnum = pgEnum('party_role', [
 	'executive_board',
 	'supervisory_board',
@@ -127,6 +128,7 @@ export const insiderTransaction = pgTable(
 		partyName: text('party_name'),
 		partyRole: partyRoleEnum('party_role').notNull().default('other'),
 		side: sideEnum('side').notNull(),
+		instrumentType: text('instrument_type'),
 		price: numeric('price'),
 		volume: numeric('volume'),
 		amount: numeric('amount'),
