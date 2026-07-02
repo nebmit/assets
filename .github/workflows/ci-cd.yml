@@ -13,7 +13,25 @@ env:
 jobs:
   test:
     runs-on: ubuntu-latest
-    
+
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_DB: assets_test
+          POSTGRES_USER: assets
+          POSTGRES_PASSWORD: assets
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U assets -d assets_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      TEST_DATABASE_URL: postgres://assets:assets@localhost:5432/assets_test
+
     steps:
     - name: Checkout code
       uses: actions/checkout@v6

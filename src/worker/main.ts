@@ -10,6 +10,8 @@ import { config } from '../lib/server/config.js';
 import { closeDb, getDb, runMigrations } from '../lib/server/db/index.js';
 import { allJobs, findJob } from '../lib/server/pipeline/jobs.js';
 import { runJobs } from '../lib/server/pipeline/runner.js';
+import { baseScreens, COMPOSITE_SLUG } from '../lib/server/signals/engine.js';
+import { latestRunDate, screenReport, summarizeRationale } from '../lib/server/signals/report.js';
 import { isoDate } from '../lib/server/util.js';
 
 function arg(name: string): string | undefined {
@@ -52,6 +54,27 @@ async function schedule(): Promise<void> {
 	});
 }
 
+async function report(): Promise<void> {
+	const db = getDb();
+	const runDate = arg('date') ?? (await latestRunDate(db));
+	if (!runDate) throw new Error('no signal runs found — run the pipeline first');
+	const top = Number(arg('top') ?? 10);
+	const slugs = arg('screen') ? [arg('screen') as string] : [...baseScreens.map((s) => s.slug), COMPOSITE_SLUG];
+
+	for (const slug of slugs) {
+		const data = await screenReport(db, slug, runDate, top);
+		if (!data) throw new Error(`no signals for screen "${slug}" on ${runDate}`);
+		console.log(`\n${slug} — ${runDate} (universe ${data.universeSize}, ${data.passed} passed gate)`);
+		for (const row of data.top) {
+			const ticker = (row.ticker ?? '—').padEnd(6);
+			const pct = `p${Math.round(row.percentile * 100)}`.padStart(4);
+			console.log(
+				`  #${String(row.rank).padStart(2)} ${ticker} ${pct}  ${row.name}  [${summarizeRationale(slug, row.rationale)}]`
+			);
+		}
+	}
+}
+
 async function main(): Promise<void> {
 	const command = process.argv[2] ?? 'schedule';
 	switch (command) {
@@ -67,7 +90,8 @@ async function main(): Promise<void> {
 			await schedule();
 			break;
 		case 'report':
-			throw new Error(`command "${command}" not implemented yet`);
+			await report();
+			break;
 		default:
 			throw new Error(`unknown command "${command}" (expected: schedule | run | report | migrate)`);
 	}
