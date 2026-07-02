@@ -23,22 +23,25 @@ export function jsonRpcError(
 }
 
 /**
- * Abuse guards for the anonymous /mcp endpoint: per-IP rate limit, body
- * size cap, JSON content type. Returns the rejection Response, or null when
+ * Abuse guards for the anonymous /mcp endpoint: rate limit per caller key
+ * (established session, or client IP before one exists), body size cap and
+ * JSON content type for POSTs. Returns the rejection Response, or null when
  * the request may proceed to the MCP transport.
  */
-export function guardMcpRequest(limiter: RateLimiter, request: Request, clientAddress: string): Response | null {
-	const decision = limiter.check(clientAddress);
+export function guardMcpRequest(limiter: RateLimiter, request: Request, callerKey: string): Response | null {
+	const decision = limiter.check(callerKey);
 	if (!decision.allowed) {
-		console.warn(`mcp: rate limit exceeded for ${clientAddress}`);
+		console.warn(`mcp: rate limit exceeded for ${callerKey}`);
 		return jsonRpcError(429, -32000, 'Rate limit exceeded.', {
 			'retry-after': String(decision.retryAfterSeconds)
 		});
 	}
 
+	if (request.method !== 'POST') return null;
+
 	const contentLength = Number(request.headers.get('content-length') ?? '0');
 	if (!Number.isFinite(contentLength) || contentLength > MAX_BODY_BYTES) {
-		console.warn(`mcp: oversized request (${request.headers.get('content-length')} bytes) from ${clientAddress}`);
+		console.warn(`mcp: oversized request (${request.headers.get('content-length')} bytes) from ${callerKey}`);
 		return jsonRpcError(413, -32000, `Request body exceeds ${MAX_BODY_BYTES} bytes.`);
 	}
 

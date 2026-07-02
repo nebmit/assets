@@ -92,6 +92,15 @@ describe('guardMcpRequest', () => {
 		expect(guardMcpRequest(limiter, request, '1.2.3.4')?.status).toBe(415);
 	});
 
+	it('skips body checks for bodyless methods but still rate-limits them', () => {
+		vi.spyOn(console, 'warn').mockImplementation(() => {});
+		const limiter = new RateLimiter(1, 60_000);
+		const request = new Request('http://localhost/mcp', { method: 'DELETE' });
+		expect(guardMcpRequest(limiter, request, 'session:abc')).toBeNull();
+		expect(guardMcpRequest(limiter, request, 'session:abc')?.status).toBe(429);
+		vi.restoreAllMocks();
+	});
+
 	it('builds JSON-RPC error responses with hardening headers', async () => {
 		const response = jsonRpcError(405, -32000, 'Method not allowed.', { allow: 'POST' });
 		expect(response.status).toBe(405);
