@@ -141,6 +141,16 @@
 	--ring-focus: 0 0 0 2px #ffffff, 0 0 0 4px var(--focus-ring);
 }
 
+/* The one permitted uppercase: quiet micro-labels above figures. */
+@utility micro-label {
+	font-family: var(--font-sans);
+	font-size: var(--text-2xs);
+	font-weight: 500;
+	letter-spacing: var(--tracking-label);
+	text-transform: uppercase;
+	color: var(--color-text-tertiary);
+}
+
 /* Baseline: sans + tabular numerals everywhere so stray figures align. */
 body {
 	background: var(--color-gray-50);
