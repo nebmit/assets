@@ -8,7 +8,11 @@ positioning and scope.
 
 `Ingestion → Normalization & Store → Signal Engine → Surfacing Layer`
 
-- **Web app** (SvelteKit, `src/routes`) — surfacing UI, arrives in Phase 2.
+- **Web app** (SvelteKit, `src/routes`) — surfacing UI: the screener screen
+  (composite gate-passers as rich cards — price chart, valuation vs sector,
+  insider dealings, regulatory news), SSR-loaded point-in-time from the
+  latest signal run. Design tokens live in `src/app.css`; the design
+  system's primitives are reimplemented in `src/lib/components/ds`.
 - **Worker** (`src/worker/main.ts`) — daily pre-market batch: ingestion +
   signal engine, scheduled in-process (croner). Shares all domain code with
   the app via `src/lib/server` (kept free of SvelteKit-specific imports).
@@ -47,7 +51,8 @@ npm install
 npm run worker -- run           # migrate + full pipeline for today
 npm run worker -- run --job=signals --date=2026-07-01
 npm run worker -- report --top=10
-npm run dev                     # web app (placeholder until Phase 2)
+npm run seed:demo               # DESTRUCTIVE dev seed: demo universe + real signal run
+npm run dev                     # web app (screener at /)
 npm test                        # unit tests; set TEST_DATABASE_URL for the DB integration test
 ```
 
