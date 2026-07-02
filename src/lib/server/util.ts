@@ -1,7 +1,11 @@
 import { createHash } from 'node:crypto';
 
-/** Calendar date (YYYY-MM-DD) of `date` in the given IANA timezone. */
-export function isoDate(date: Date = new Date(), timeZone = 'Europe/Berlin'): string {
+/**
+ * Calendar date (YYYY-MM-DD) of `date` in the given IANA timezone. The
+ * timezone is deliberately required: run/archive dates follow the configured
+ * worker timezone (config().TZ), trading dates follow the exchange timezone.
+ */
+export function isoDate(date: Date, timeZone: string): string {
 	return new Intl.DateTimeFormat('en-CA', { timeZone }).format(date);
 }
 

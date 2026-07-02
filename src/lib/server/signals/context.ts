@@ -20,7 +20,9 @@ export async function buildContext(db: Db, runDate: string): Promise<UniverseCon
 		join issuer s on s.id = i.issuer_id
 		join index_membership m on m.instrument_id = i.id
 		where m.valid_from <= ${runDate} and (m.valid_to is null or m.valid_to > ${runDate})
-		order by i.id
+		-- index_name tie-breaker: deterministic pick should an instrument ever
+		-- carry overlapping memberships (data issue); DAX sorts first
+		order by i.id, m.index_name, m.valid_from desc
 	`)) as unknown as {
 		instrument_id: number;
 		issuer_id: number;

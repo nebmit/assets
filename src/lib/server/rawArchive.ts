@@ -11,7 +11,7 @@ export async function archiveRaw(
 	source: string,
 	name: string,
 	content: string,
-	date: string = isoDate()
+	date: string = isoDate(new Date(), config().TZ)
 ): Promise<void> {
 	const safeName = name.replace(/[^a-zA-Z0-9._-]+/g, '_');
 	const dir = path.join(config().RAW_DATA_DIR, source, date);

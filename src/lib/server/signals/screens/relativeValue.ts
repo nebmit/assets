@@ -36,14 +36,17 @@ function peerMedians(ctx: UniverseContext): PeerMedians {
 	const peByInstrument = new Map<number, number>();
 	const sectorPes = new Map<string, number[]>();
 	const indexPes = new Map<string, number[]>();
+	const append = (map: Map<string, number[]>, key: string, pe: number) => {
+		const list = map.get(key);
+		if (list) list.push(pe);
+		else map.set(key, [pe]);
+	};
 	for (const instrument of ctx.instruments) {
 		const pe = validPe(instrument, ctx.runDate);
 		if (pe === null) continue;
 		peByInstrument.set(instrument.instrumentId, pe);
-		if (instrument.sector !== null) {
-			sectorPes.set(instrument.sector, [...(sectorPes.get(instrument.sector) ?? []), pe]);
-		}
-		indexPes.set(instrument.indexName, [...(indexPes.get(instrument.indexName) ?? []), pe]);
+		if (instrument.sector !== null) append(sectorPes, instrument.sector, pe);
+		append(indexPes, instrument.indexName, pe);
 	}
 	cached = {
 		peByInstrument,

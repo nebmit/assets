@@ -4,6 +4,9 @@ import { METRICS, type Metric } from '../../fundamentals/metrics.js';
 import type { Job, JobStats } from '../../pipeline/types.js';
 import { isoDate } from '../../util.js';
 import { BF_SOURCE } from './client.js';
+
+/** XETR trading dates are Berlin-calendar days regardless of worker TZ. */
+const EXCHANGE_TIMEZONE = 'Europe/Berlin';
 import type { EquitySearchRow } from './schemas.js';
 import { fetchIndexMembers, INDICES } from './universe.js';
 
@@ -32,7 +35,7 @@ export function mapSnapshotRow(row: EquitySearchRow, runDate: string): SnapshotM
 	const price = row.overview?.lastPrice;
 	const priceTime = row.overview?.dateTimeLastPrice;
 	if (price !== null && price !== undefined && price > 0 && priceTime) {
-		const tradeDate = isoDate(new Date(priceTime));
+		const tradeDate = isoDate(new Date(priceTime), EXCHANGE_TIMEZONE);
 		if (tradeDate < runDate) close = { tradeDate, close: price };
 	}
 	return { fundamentals, close };

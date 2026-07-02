@@ -84,7 +84,8 @@ async function main(): Promise<void> {
 			break;
 		case 'run':
 			await runMigrations();
-			if (!(await runPipeline(arg('job') ?? 'all', arg('date') ?? isoDate()))) process.exitCode = 1;
+			if (!(await runPipeline(arg('job') ?? 'all', arg('date') ?? isoDate(new Date(), config().TZ))))
+				process.exitCode = 1;
 			break;
 		case 'schedule':
 			await schedule();
