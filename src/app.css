@@ -1,2 +1,157 @@
+/* assets — design-token foundation.
+   Values are taken verbatim from the bound design system
+   (design handoff "Screener — Refined Card (5a)", _ds tokens). Grayscale
+   carries the interface; blue = up / active, amber = down / cooling —
+   direction, never endorsement. Actions and primary text stay ink. */
+
+@import '@fontsource-variable/geist';
+@import '@fontsource-variable/geist-mono';
 @import 'tailwindcss';
-@plugin 'daisyui';
+
+@theme {
+	/* Wipe Tailwind's default palette — the token ramps below are the only colors. */
+	--color-*: initial;
+
+	/* Neutral ramp */
+	--color-gray-0: #ffffff;
+	--color-gray-50: #fafafa;
+	--color-gray-100: #f4f4f5;
+	--color-gray-150: #ececee;
+	--color-gray-200: #e4e4e7;
+	--color-gray-300: #d4d4d8;
+	--color-gray-400: #a1a1aa;
+	--color-gray-500: #71717a;
+	--color-gray-600: #52525b;
+	--color-gray-700: #3f3f46;
+	--color-gray-800: #27272a;
+	--color-gray-900: #18181b;
+	--color-gray-950: #0f0f11;
+	--color-ink: #0a0a0a;
+
+	/* Blue: up / active / rising (direction, never "buy") */
+	--color-blue-50: #eef4fb;
+	--color-blue-100: #d7e6f6;
+	--color-blue-200: #adcbec;
+	--color-blue-300: #7fb0e0;
+	--color-blue-400: #4e92d6;
+	--color-blue-500: #378add;
+	--color-blue-600: #185fa5;
+	--color-blue-700: #124a80;
+	--color-blue-800: #0e395f;
+
+	/* Amber: down / cooling / falling */
+	--color-amber-50: #fbf5ea;
+	--color-amber-100: #f6e8cc;
+	--color-amber-200: #eccf93;
+	--color-amber-300: #e0b45e;
+	--color-amber-400: #d2960f;
+	--color-amber-500: #b87a0b;
+	--color-amber-600: #9a6408;
+	--color-amber-700: #78500a;
+
+	/* Semantic aliases — surfaces */
+	--color-surface-page: #ffffff;
+	--color-surface-sunken: #fafafa;
+	--color-surface-card: #ffffff;
+	--color-surface-inset: #f4f4f5;
+	--color-surface-hover: #f4f4f5;
+	--color-surface-active: #ececee;
+
+	/* Semantic aliases — text (namespaced under color-text-* because the bare
+	   --text-* namespace is Tailwind's font-size scale) */
+	--color-text-primary: #0a0a0a;
+	--color-text-secondary: #52525b;
+	--color-text-tertiary: #71717a;
+	--color-text-muted: #a1a1aa;
+
+	/* Semantic aliases — borders / hairlines */
+	--color-border-subtle: #e4e4e7;
+	--color-border-default: #d4d4d8;
+	--color-border-strong: #a1a1aa;
+
+	/* Semantic aliases — direction (data semantics) */
+	--color-dir-up: #185fa5;
+	--color-dir-up-soft: #eef4fb;
+	--color-dir-up-border: #adcbec;
+	--color-dir-down: #b87a0b;
+	--color-dir-down-soft: #fbf5ea;
+	--color-dir-down-border: #eccf93;
+	--color-dir-flat: #a1a1aa;
+
+	/* Typography — Geist for structure, Geist Mono for any datum */
+	--font-sans: 'Geist Variable', 'Geist', system-ui, -apple-system, 'Segoe UI', sans-serif;
+	--font-mono: 'Geist Mono Variable', 'Geist Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+
+	/* Type scale (UI default 14px — an instrument, not an article) */
+	--text-2xs: 11px;
+	--text-2xs--line-height: 1.35;
+	--text-xs: 12px;
+	--text-xs--line-height: 1.35;
+	--text-sm: 13px;
+	--text-sm--line-height: 1.35;
+	--text-base: 14px;
+	--text-base--line-height: 1.55;
+	--text-md: 16px;
+	--text-md--line-height: 1.35;
+	--text-lg: 18px;
+	--text-lg--line-height: 1.35;
+	--text-xl: 22px;
+	--text-xl--line-height: 1.15;
+	--text-2xl: 28px;
+	--text-2xl--line-height: 1.15;
+	--text-3xl: 36px;
+	--text-3xl--line-height: 1;
+
+	/* Corner radii — restrained; nothing pill-shaped except dots */
+	--radius-*: initial;
+	--radius-xs: 3px;
+	--radius-sm: 4px;
+	--radius-md: 6px;
+	--radius-lg: 8px;
+	--radius-xl: 12px;
+	--radius-full: 999px;
+
+	/* Shadows — whisper-quiet; elevation is borders first, shadow second */
+	--shadow-*: initial;
+	--shadow-xs: 0 1px 1px rgba(15, 15, 17, 0.04);
+	--shadow-sm: 0 1px 2px rgba(15, 15, 17, 0.05), 0 1px 1px rgba(15, 15, 17, 0.04);
+	--shadow-md: 0 2px 4px rgba(15, 15, 17, 0.06), 0 1px 2px rgba(15, 15, 17, 0.05);
+	--shadow-lg: 0 6px 16px rgba(15, 15, 17, 0.08), 0 1px 3px rgba(15, 15, 17, 0.06);
+	--shadow-popover: 0 8px 28px rgba(15, 15, 17, 0.12), 0 0 0 1px rgba(15, 15, 17, 0.05);
+
+	/* Motion — fast, no bounce; data doesn't perform */
+	--ease-standard: cubic-bezier(0.2, 0, 0, 1);
+	--ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+
+	/* Uppercase micro-label tracking */
+	--tracking-tight: -0.01em;
+	--tracking-label: 0.02em;
+}
+
+/* Raw custom properties for consumers Tailwind utilities can't reach
+   (SVG strokes, inline hover-scrub positioning, focus-ring composition). */
+:root {
+	--ink: #0a0a0a;
+	--surface-card: #ffffff;
+	--border-strong: #a1a1aa;
+	--dir-up: #185fa5;
+	--dir-down: #b87a0b;
+	--dir-flat: #a1a1aa;
+	--focus-ring: color-mix(in srgb, #0a0a0a 24%, transparent);
+	--ring-focus: 0 0 0 2px #ffffff, 0 0 0 4px var(--focus-ring);
+}
+
+/* Baseline: sans + tabular numerals everywhere so stray figures align. */
+body {
+	background: var(--color-gray-50);
+	color: var(--color-text-primary);
+	font-family: var(--font-sans);
+	font-size: var(--text-base);
+	font-weight: 400;
+	line-height: 1.55;
+	font-feature-settings:
+		'tnum' 1,
+		'cv01' 1;
+	-webkit-font-smoothing: antialiased;
+	text-rendering: optimizeLegibility;
+}
