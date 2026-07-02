@@ -11,7 +11,7 @@ import type { RankedResult, ScreenDefinition, UniverseContext } from './types.js
 export const COMPOSITE_SLUG = 'value_insider_composite';
 export const baseScreens: ScreenDefinition[] = [insiderConvictionScreen, relativeValueScreen];
 
-const compositeMeta = {
+export const compositeMeta = {
 	slug: COMPOSITE_SLUG,
 	name: 'Value × Insider Composite',
 	version: 1,

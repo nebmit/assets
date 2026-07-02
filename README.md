@@ -43,6 +43,23 @@ access is point-in-time (`published_date <= run_date`, no lookahead). v1
 screens: `insider_conviction`, `relative_value`, `value_insider_composite`
 (equal weights).
 
+### MCP endpoint
+
+`POST /mcp` exposes the screens to MCP clients (Streamable HTTP, JSON
+responses only — no SSE): one read-only tool per screen (`screen_<slug>`)
+returning the ranked gate-passers of a signal run as structured output.
+Requests must send `Accept: application/json, text/event-stream`
+(spec-mandated even though responses are plain JSON). Sessions are
+server-minted via `Mcp-Session-Id` on `initialize` (in-memory, 30 min
+idle expiry; `DELETE /mcp` ends one) and are where the planned user
+accounts will attach. Anonymous for now — it serves the same read-only
+data as the screener page — and guarded by a per-session rate limit
+(30 req/min; `initialize` itself is limited per client IP, so behind a
+proxy set `ADDRESS_HEADER`/`XFF_DEPTH`), a 16 KB body cap, and strict
+param validation. Point an MCP client at `https://<host>/mcp`, or inspect
+locally with `npx @modelcontextprotocol/inspector` against
+`http://localhost:5173/mcp`.
+
 ## Development
 
 ```bash
