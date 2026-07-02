@@ -58,7 +58,7 @@
 		</div>
 
 		<div
-			class="flex flex-none flex-col px-[18px] py-3 max-md:flex-row max-md:items-start max-md:justify-between max-md:gap-4 md:w-[170px]"
+			class="flex flex-none flex-col px-[18px] py-3 max-md:flex-row max-md:flex-wrap max-md:items-start max-md:justify-between max-md:gap-4 md:w-[170px]"
 		>
 			<div class="flex flex-col gap-[5px]">
 				<span class="micro-label">P / E vs sector</span>
@@ -94,7 +94,7 @@
 			<div
 				class="flex items-baseline gap-[7px] md:mt-3 md:border-t md:border-border-subtle md:pt-[11px]"
 			>
-				<span class="micro-label">Mkt cap</span>
+				<span class="micro-label whitespace-nowrap">Mkt cap</span>
 				<span class="font-mono text-sm font-medium tabular-nums">
 					{card.marketCap === null ? '—' : `€${formatCompactEur(card.marketCap)}`}
 				</span>

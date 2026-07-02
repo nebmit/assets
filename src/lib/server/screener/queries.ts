@@ -4,12 +4,21 @@ import type { Db } from '../db/index.js';
 import { instrument, issuer, screen, signal, signalRun } from '../db/schema.js';
 import { COMPOSITE_SLUG } from '../signals/engine.js';
 import { latestRunDate } from '../signals/report.js';
+import { addDays } from '../util.js';
 import type { InsiderRowView, NewsRowView, PricePoint, ScreenerPayload } from '../../screener/types.js';
 import { assembleCards, type LatestPriceView, type PasserRow } from './assemble.js';
 import { parseMarketCap, parseRelativeValueRationale, type RelativeValueView } from './rationale.js';
 
 const RELATIVE_VALUE_SLUG = 'relative_value';
 const INSIDER_CONVICTION_SLUG = 'insider_conviction';
+
+/** `in (…)` list for raw SQL — drizzle's template expands arrays as tuples, not pg arrays. */
+function idList(ids: number[]) {
+	return sql.join(
+		ids.map((id) => sql`${id}`),
+		sql`, `
+	);
+}
 
 /** Series window: 1Y of weekly closes needs a hair over 52 weeks of days. */
 const SERIES_WINDOW_DAYS = 371;
@@ -124,9 +133,9 @@ async function loadWeeklySeries(
 		select distinct on (instrument_id, date_trunc('week', trade_date))
 			instrument_id, trade_date, close
 		from eod_price
-		where instrument_id = any(${instrumentIds})
+		where instrument_id in (${idList(instrumentIds)})
 			and trade_date <= ${runDate}
-			and trade_date > ${runDate}::date - ${SERIES_WINDOW_DAYS}
+			and trade_date > ${addDays(runDate, -SERIES_WINDOW_DAYS)}
 		order by instrument_id, date_trunc('week', trade_date), trade_date desc
 	`)) as unknown as { instrument_id: number; trade_date: string; close: string }[];
 
@@ -154,9 +163,9 @@ async function loadLatestPrices(
 			min(close) over (partition by instrument_id) as lo52,
 			max(close) over (partition by instrument_id) as hi52
 		from eod_price
-		where instrument_id = any(${instrumentIds})
+		where instrument_id in (${idList(instrumentIds)})
 			and trade_date <= ${runDate}
-			and trade_date > ${runDate}::date - ${HI_LO_WINDOW_DAYS}
+			and trade_date > ${addDays(runDate, -HI_LO_WINDOW_DAYS)}
 		order by instrument_id, trade_date desc
 	`)) as unknown as {
 		instrument_id: number;
@@ -194,7 +203,7 @@ async function loadInsiders(
 					order by transaction_date desc, id desc
 				) as rn
 			from insider_transaction
-			where issuer_id = any(${issuerIds}) and published_date <= ${runDate}
+			where issuer_id in (${idList(issuerIds)}) and published_date <= ${runDate}
 		) ranked
 		where rn <= 3
 		order by issuer_id, transaction_date desc
@@ -237,7 +246,7 @@ async function loadNews(
 					order by published_at desc, id desc
 				) as rn
 			from news_item
-			where issuer_id = any(${issuerIds}) and published_date <= ${runDate}
+			where issuer_id in (${idList(issuerIds)}) and published_date <= ${runDate}
 		) ranked
 		where rn <= 2
 		order by issuer_id, published_at desc

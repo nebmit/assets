@@ -14,6 +14,7 @@
 		"test": "vitest run",
 		"test:watch": "vitest",
 		"worker": "tsx src/worker/main.ts",
+		"seed:demo": "tsx scripts/seed-demo.ts",
 		"db:generate": "drizzle-kit generate"
 	},
 	"dependencies": {
