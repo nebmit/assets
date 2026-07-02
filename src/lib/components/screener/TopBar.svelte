@@ -4,7 +4,7 @@
 	import Tabs from '../ds/Tabs.svelte';
 
 	/**
-	 * App chrome. Watchlists/Insiders, "Use in Claude" and "Log in" are
+	 * App chrome. Watchlist/Ignored, "Use in Claude" and "Log in" are
 	 * rendered per the design but disabled — their features ship later.
 	 */
 	interface Props {
@@ -15,13 +15,13 @@
 
 	const navTabs = [
 		{ value: 'overview', label: 'Overview' },
-		{ value: 'watchlists', label: 'Watchlists', disabled: true },
-		{ value: 'insiders', label: 'Insiders', disabled: true }
+		{ value: 'watchlist', label: 'Watchlist', disabled: true },
+		{ value: 'ignored', label: 'Ignored', disabled: true }
 	];
 </script>
 
 <header
-	class="flex flex-wrap items-center gap-x-[18px] gap-y-2 border-b border-border-subtle bg-surface-card px-[22px] py-[11px]"
+	class="flex flex-wrap items-center gap-x-[18px] gap-y-2 border-b border-border-subtle bg-surface-card px-[18px] py-[11px] sm:px-[22px] lg:px-8 xl:px-10 2xl:px-12"
 >
 	<div class="flex items-center gap-[9px]">
 		<div class="flex flex-col items-center gap-[2px]">

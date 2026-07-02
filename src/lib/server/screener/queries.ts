@@ -2,9 +2,14 @@ import { and, eq, inArray } from 'drizzle-orm';
 import { sql } from 'drizzle-orm';
 import type { Db } from '../db/index.js';
 import { instrument, issuer, screen, signal, signalRun } from '../db/schema.js';
-import { COMPOSITE_SLUG } from '../signals/engine.js';
 import { latestRunDate } from '../signals/report.js';
 import { addDays } from '../util.js';
+import {
+	DEFAULT_SCREEN_SLUG,
+	SCREENER_SCREENS,
+	screenerScreenBySlug,
+	type ScreenerScreenSlug
+} from '../../screener/screens.js';
 import type { InsiderRowView, NewsRowView, PricePoint, ScreenerPayload } from '../../screener/types.js';
 import { assembleCards, type LatestPriceView, type PasserRow } from './assemble.js';
 import { parseMarketCap, parseRelativeValueRationale, type RelativeValueView } from './rationale.js';
@@ -30,19 +35,31 @@ const HI_LO_WINDOW_DAYS = 365;
  * date, mirroring the engine's own no-lookahead discipline in context.ts).
  * Returns null when no run exists yet.
  */
-export async function loadScreener(db: Db): Promise<ScreenerPayload | null> {
+export async function loadScreener(
+	db: Db,
+	selectedSlug: ScreenerScreenSlug = DEFAULT_SCREEN_SLUG
+): Promise<ScreenerPayload | null> {
 	const runDate = await latestRunDate(db);
 	if (runDate === null) return null;
 	const [run] = await db.select().from(signalRun).where(eq(signalRun.runDate, runDate));
 	if (!run) return null;
+	const selectedScreen = screenerScreenBySlug(selectedSlug);
 
 	const screens = await db
 		.select({ id: screen.id, slug: screen.slug })
 		.from(screen)
-		.where(inArray(screen.slug, [COMPOSITE_SLUG, RELATIVE_VALUE_SLUG, INSIDER_CONVICTION_SLUG]));
+		.where(inArray(screen.slug, SCREENER_SCREENS.map((s) => s.slug)));
 	const screenIdBySlug = new Map(screens.map((s) => [s.slug, s.id]));
-	const compositeId = screenIdBySlug.get(COMPOSITE_SLUG);
-	if (compositeId === undefined) return { runDate, universeSize: run.universeSize, cards: [] };
+	const selectedScreenId = screenIdBySlug.get(selectedSlug);
+	if (selectedScreenId === undefined) {
+		return {
+			runDate,
+			universeSize: run.universeSize,
+			screen: selectedScreen,
+			screens: [...SCREENER_SCREENS],
+			cards: []
+		};
+	}
 
 	const passerRows = await db
 		.select({
@@ -58,11 +75,19 @@ export async function loadScreener(db: Db): Promise<ScreenerPayload | null> {
 		.innerJoin(instrument, eq(instrument.id, signal.instrumentId))
 		.innerJoin(issuer, eq(issuer.id, instrument.issuerId))
 		.where(
-			and(eq(signal.runId, run.id), eq(signal.screenId, compositeId), eq(signal.passedGate, true))
+			and(eq(signal.runId, run.id), eq(signal.screenId, selectedScreenId), eq(signal.passedGate, true))
 		)
 		.orderBy(signal.rank);
 	const passers: PasserRow[] = passerRows.map((r) => ({ ...r, rank: r.rank ?? 0 }));
-	if (passers.length === 0) return { runDate, universeSize: run.universeSize, cards: [] };
+	if (passers.length === 0) {
+		return {
+			runDate,
+			universeSize: run.universeSize,
+			screen: selectedScreen,
+			screens: [...SCREENER_SCREENS],
+			cards: []
+		};
+	}
 
 	const instrumentIds = passers.map((p) => p.instrumentId);
 	const issuerIds = [...new Set(passers.map((p) => p.issuerId))];
@@ -79,6 +104,8 @@ export async function loadScreener(db: Db): Promise<ScreenerPayload | null> {
 	return {
 		runDate,
 		universeSize: run.universeSize,
+		screen: selectedScreen,
+		screens: [...SCREENER_SCREENS],
 		cards: assembleCards(passers, valuation, marketCap, series, latest, insiders, news)
 	};
 }
@@ -188,7 +215,7 @@ async function loadLatestPrices(
 	);
 }
 
-/** Three most recent insider transactions per issuer, published by the run date. */
+/** Five most recent buy/sell insider transactions per issuer, published by the run date. */
 async function loadInsiders(
 	db: Db,
 	issuerIds: number[],
@@ -203,9 +230,11 @@ async function loadInsiders(
 					order by transaction_date desc, id desc
 				) as rn
 			from insider_transaction
-			where issuer_id in (${idList(issuerIds)}) and published_date <= ${runDate}
+			where issuer_id in (${idList(issuerIds)})
+				and published_date <= ${runDate}
+				and side in ('buy', 'sell')
 		) ranked
-		where rn <= 3
+		where rn <= 5
 		order by issuer_id, transaction_date desc
 	`)) as unknown as {
 		issuer_id: number;

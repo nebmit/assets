@@ -31,10 +31,19 @@
 						{formatDayMonth(item.publishedAt)}
 					</span>
 				</div>
-				<span class="text-sm leading-snug">
+				<span class="headline-clamp text-sm leading-snug">
 					<Link href={newsUrl} external variant="inline">{item.headline}</Link>
 				</span>
 			</div>
 		{/each}
 	{/if}
 </div>
+
+<style>
+	.headline-clamp {
+		display: -webkit-box;
+		-webkit-box-orient: vertical;
+		-webkit-line-clamp: 2;
+		overflow: hidden;
+	}
+</style>

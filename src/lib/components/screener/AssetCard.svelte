@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { FILINGS_SEARCH_URL } from '$lib/externalLinks.js';
 	import { formatCompactEur, formatPrice, formatRatio } from '$lib/format.js';
 	import type { CardData } from '$lib/screener/types.js';
 	import Badge from '../ds/Badge.svelte';
@@ -24,9 +25,9 @@
 </script>
 
 <article
-	class="flex flex-col overflow-hidden rounded-md border border-border-subtle bg-surface-card shadow-xs"
+	class="flex flex-col overflow-hidden rounded-md border border-border-subtle bg-surface-sunken shadow-xs"
 >
-	<div class="flex flex-col items-stretch md:flex-row">
+	<div class="flex flex-col items-stretch bg-surface-card md:flex-row">
 		<div
 			class="flex flex-none flex-col justify-start gap-2 border-b border-border-subtle px-5 pt-4 pb-[14px] max-md:flex-row max-md:items-center max-md:justify-between md:w-[230px] md:border-r md:border-b-0"
 		>
@@ -100,7 +101,7 @@
 				</span>
 			</div>
 			<div class="md:mt-auto md:pt-3">
-				<Link href="https://www.unternehmensregister.de" external variant="quiet" size="xs">
+				<Link href={FILINGS_SEARCH_URL} external variant="quiet" size="xs">
 					Filings
 				</Link>
 			</div>
@@ -108,7 +109,7 @@
 	</div>
 
 	<div class="flex flex-col items-stretch border-t border-border-subtle bg-surface-sunken sm:flex-row">
-		<InsiderList insiders={card.insiders} asOf={runDate} />
+		<InsiderList insiders={card.insiders} asOf={runDate} isin={card.isin} />
 		<NewsList news={card.news} isin={card.isin} />
 	</div>
 </article>

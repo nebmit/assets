@@ -1,20 +1,25 @@
 <script lang="ts">
+	import { bafinDealingsUrl } from '$lib/externalLinks.js';
 	import { ageOpacity, formatCompactEur, formatDayMonth } from '$lib/format.js';
 	import type { InsiderRowView, PartyRole, TransactionSide } from '$lib/screener/types.js';
 	import Badge from '../ds/Badge.svelte';
 	import Link from '../ds/Link.svelte';
 
 	/**
-	 * Up to three recent directors' dealings. Rows fade with age but never
+	 * Up to five recent buy/sell directors' dealings. Rows fade with age but never
 	 * below 50% opacity so the oldest trade stays legible. Badge tone follows
 	 * direction: buy = up (blue), sell = down (amber) — never "buy = good".
 	 */
 	interface Props {
 		insiders: InsiderRowView[];
 		asOf: string;
+		isin: string;
 	}
 
-	let { insiders, asOf }: Props = $props();
+	let { insiders, asOf, isin }: Props = $props();
+
+	const bafinUrl = $derived(bafinDealingsUrl(isin));
+	const displayedInsiders = $derived(insiders.filter((trade) => trade.side !== 'other'));
 
 	const ROLE_LABELS: Record<PartyRole, string> = {
 		executive_board: 'Exec. board',
@@ -39,14 +44,14 @@
 <div class="min-w-0 flex-1 px-5 pt-[11px] pb-[13px] max-sm:border-b sm:border-r border-border-subtle">
 	<div class="mb-[3px] flex items-baseline justify-between">
 		<span class="micro-label">Insider trades</span>
-		<Link href="https://www.bafin.de" external variant="quiet" size="xs">BaFin</Link>
+		<Link href={bafinUrl} external variant="quiet" size="xs">BaFin</Link>
 	</div>
-	{#if insiders.length === 0}
+	{#if displayedInsiders.length === 0}
 		<div class="border-t border-border-subtle py-[7px] font-mono text-xs text-text-muted">
 			None in window
 		</div>
 	{:else}
-		{#each insiders as trade (trade)}
+		{#each displayedInsiders as trade (trade)}
 			<div
 				class="-mx-1 grid grid-cols-[44px_1fr_68px_92px] items-center gap-3 rounded-xs border-t border-border-subtle px-1 py-[6px] transition-colors duration-[120ms] hover:bg-surface-hover"
 				style:opacity={ageOpacity(trade.transactionDate, asOf)}

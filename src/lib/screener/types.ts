@@ -3,6 +3,8 @@
  * here must stay JSON-serializable: it crosses the SvelteKit load boundary.
  */
 
+import type { ScreenerScreenOption } from './screens.js';
+
 export type PartyRole = 'executive_board' | 'supervisory_board' | 'related_party' | 'other';
 export type TransactionSide = 'buy' | 'sell' | 'other';
 
@@ -55,7 +57,7 @@ export interface CardData {
 	eps: number | null;
 	/** Market capitalization, EUR. */
 	marketCap: number | null;
-	/** Up to 3, newest first. */
+	/** Up to 5, newest first. */
 	insiders: InsiderRowView[];
 	/** Up to 2, newest first. */
 	news: NewsRowView[];
@@ -65,6 +67,8 @@ export interface ScreenerPayload {
 	/** Signal-run date (yyyy-mm-dd) all card data is point-in-time consistent with. */
 	runDate: string;
 	universeSize: number | null;
-	/** Composite gate-passers in rank order. */
+	screen: ScreenerScreenOption;
+	screens: ScreenerScreenOption[];
+	/** Selected-screen gate-passers in rank order. */
 	cards: CardData[];
 }
