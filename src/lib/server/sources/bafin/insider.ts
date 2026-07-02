@@ -1,6 +1,6 @@
 import { inArray } from 'drizzle-orm';
 import { insiderTransaction, instrument } from '../../db/schema.js';
-import { fetchText, RateLimiter } from '../../http.js';
+import { fetchTextLooseHeaders, RateLimiter } from '../../http.js';
 import type { Job, JobStats } from '../../pipeline/types.js';
 import { archiveRaw } from '../../rawArchive.js';
 import { BAFIN_SOURCE, parseDealingsCsv } from './parse.js';
@@ -27,11 +27,12 @@ export const insiderJob: Job = {
 	name: 'bafin_insider',
 	source: BAFIN_SOURCE,
 	async run(ctx): Promise<JobStats> {
-		const csvText = await fetchText(EXPORT_URL, {
+		const csvText = await fetchTextLooseHeaders(EXPORT_URL, {
 			headers: {
 				'user-agent':
 					'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36',
-				accept: 'text/csv,*/*'
+				accept: 'text/csv,*/*',
+				'accept-encoding': 'identity'
 			},
 			timeoutMs: 120_000,
 			limiter
