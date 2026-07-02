@@ -1,0 +1,33 @@
+{
+	"data": [
+		{
+			"headline": "ANALYSE-FLASH: Berenberg belässt SAP auf 'Buy' - Ziel 215 Euro",
+			"id": "3ac5730c-344a-4f6d-a5ef-7206ccc21804",
+			"pathSegment": "ANALYSE-FLASH-Berenberg-belaesst-SAP-auf-Buy---Ziel-215-Euro-3ac5730c-344a-4f6d-a5ef-7206ccc21804",
+			"time": "2026-06-19T12:35:01+02:00"
+		},
+		{
+			"headline": "EQS-Adhoc: SAP SE: SAP kündigt personelle Veränderungen im Aufsichtsrat an (deutsch)",
+			"id": "5b3928e4-2dd4-42e9-ba19-95402a3f372c",
+			"pathSegment": null,
+			"time": "2024-02-11T20:06:07+01:00"
+		},
+		{
+			"headline": "Crafted: numeric id, explicit type, late-UTC timestamp crossing the Berlin day boundary",
+			"id": 12345,
+			"newsType": "COMPANY_NEWS",
+			"time": "2026-06-30T23:30:00+00:00"
+		},
+		{
+			"headline": "Crafted: unparseable timestamp",
+			"id": "1c0ffee0-0000-4000-8000-000000000000",
+			"time": "kein Datum"
+		}
+	],
+	"instrumentName": {
+		"originalValue": "SAP SE O.N.",
+		"translations": { "others": "SAP SE" }
+	},
+	"isin": "DE0007164600",
+	"totalCount": 276
+}

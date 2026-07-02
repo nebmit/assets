@@ -69,6 +69,28 @@ export const priceHistoryResponse = z.object({
 });
 export type PriceHistoryResponse = z.infer<typeof priceHistoryResponse>;
 
+export const instrumentNewsItem = z
+	.object({
+		id: z.union([z.string(), z.number()]),
+		/** ISO 8601 with UTC offset, e.g. "2026-06-25T13:42:35+02:00". */
+		time: z.string(),
+		headline: z.string(),
+		// instrument_news does not currently return a per-item type (verified
+		// 2026-07); kept nullish in case the API starts sending one.
+		newsType: z.string().nullish()
+	})
+	.passthrough(); // unknown fields (pathSegment, …) flow into the raw jsonb column
+export type InstrumentNewsItem = z.infer<typeof instrumentNewsItem>;
+
+export const instrumentNewsResponse = z.object({
+	// handshake-gated endpoints degrade to `{}` when the handshake is rejected;
+	// keep these optional so we can detect that case and fail loudly
+	isin: z.string().optional(),
+	totalCount: z.number().optional(),
+	data: z.array(instrumentNewsItem).optional()
+});
+export type InstrumentNewsResponse = z.infer<typeof instrumentNewsResponse>;
+
 export const equityKeyData = z.object({
 	isin: z.string().nullish(),
 	numberOfShares: z.number().nullish(),
