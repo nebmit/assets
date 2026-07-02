@@ -1,12 +1,18 @@
-import { and, eq, isNull, max } from 'drizzle-orm';
+import { eq, isNull, max } from 'drizzle-orm';
 import { eodPrice, indexMembership, instrument } from '../../db/schema.js';
 import type { Job, JobContext, JobStats } from '../../pipeline/types.js';
 import { addDays } from '../../util.js';
-import { bfRequest, BF_SOURCE } from './client.js';
+import { bfRequest, BF_SOURCE, BfUnavailableError } from './client.js';
 import { priceHistoryResponse } from './schemas.js';
 
 const BACKFILL_DAYS = 730;
 const PAGE_SIZE = 1000;
+/**
+ * The snapshot job supplies the daily close for every instrument, so
+ * price_history (one request per instrument — expensive against the API's
+ * rate limits) is only fetched for new instruments or after multi-day gaps.
+ */
+const GAP_REPAIR_DAYS = 4;
 
 async function currentMembers(ctx: JobContext): Promise<{ id: number; isin: string }[]> {
 	return ctx.db
@@ -45,8 +51,9 @@ async function fetchHistory(isin: string, minDate: string, maxDate: string, arch
 }
 
 /**
- * EOD price ingestion for current index members. Incremental per instrument
- * from its last stored trade date; first run backfills ~2 years.
+ * EOD price history for current index members: ~2-year backfill for new
+ * instruments, gap repair when the snapshot closes have fallen behind.
+ * Steady state makes zero requests.
  */
 export const pricesJob: Job = {
 	name: 'bf_prices',
@@ -62,11 +69,11 @@ export const pricesJob: Job = {
 					.select({ watermark: max(eodPrice.tradeDate) })
 					.from(eodPrice)
 					.where(eq(eodPrice.instrumentId, member.id));
-				const minDate = watermark ? addDays(watermark, 1) : addDays(ctx.runDate, -BACKFILL_DAYS);
-				if (minDate > ctx.runDate) {
+				if (watermark !== null && watermark >= addDays(ctx.runDate, -GAP_REPAIR_DAYS)) {
 					skipped++;
 					continue;
 				}
+				const minDate = watermark ? addDays(watermark, 1) : addDays(ctx.runDate, -BACKFILL_DAYS);
 				const rows = await fetchHistory(member.isin, minDate, ctx.runDate, watermark === null);
 				if (rows.length === 0) {
 					skipped++;
@@ -89,6 +96,8 @@ export const pricesJob: Job = {
 					.onConflictDoNothing();
 				inserted += rows.length;
 			} catch (err) {
+				// API in the penalty box: abort instead of grinding through the rest
+				if (err instanceof BfUnavailableError) throw err;
 				failed++;
 				ctx.log(`prices failed for ${member.isin}: ${String(err)}`);
 			}

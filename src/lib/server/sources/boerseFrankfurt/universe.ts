@@ -1,8 +1,13 @@
 import { and, eq, inArray, isNull, or } from 'drizzle-orm';
 import { indexMembership, instrument, issuer } from '../../db/schema.js';
 import type { Job, JobContext, JobStats } from '../../pipeline/types.js';
-import { bfRequest, BF_SOURCE } from './client.js';
-import { equityMasterData, equitySearchResponse, instrumentInformation } from './schemas.js';
+import { bfRequest, BF_SOURCE, BfUnavailableError } from './client.js';
+import {
+	equityMasterData,
+	equitySearchResponse,
+	instrumentInformation,
+	type EquitySearchRow
+} from './schemas.js';
 
 export const INDICES = [
 	{ name: 'DAX', isin: 'DE0008469008' },
@@ -19,9 +24,14 @@ export interface Constituent {
 	slug: string | null;
 }
 
-export async function fetchConstituents(indexIsin: string, indexName: string): Promise<Constituent[]> {
+/** All index members with key data and price overview (one request per page). */
+export async function fetchIndexMembers(
+	indexIsin: string,
+	indexName: string,
+	archiveTag = 'equity_search'
+): Promise<EquitySearchRow[]> {
 	const pageSize = 200;
-	const result: Constituent[] = [];
+	const result: EquitySearchRow[] = [];
 	for (let offset = 0; ; offset += pageSize) {
 		const page = await bfRequest('/search/equity_search', {
 			body: {
@@ -33,19 +43,22 @@ export async function fetchConstituents(indexIsin: string, indexName: string): P
 				sortOrder: 'ASC'
 			},
 			schema: equitySearchResponse,
-			archiveName: `equity_search_${indexName}_${offset}.json`
+			archiveName: `${archiveTag}_${indexName}_${offset}.json`
 		});
-		for (const row of page.data) {
-			result.push({
-				isin: row.isin,
-				wkn: row.wkn ?? null,
-				name: (row.name.originalValue ?? row.isin).trim(),
-				slug: row.slug ?? null
-			});
-		}
+		result.push(...page.data);
 		if (result.length >= page.recordsTotal || page.data.length === 0) break;
 	}
 	return result;
+}
+
+export async function fetchConstituents(indexIsin: string, indexName: string): Promise<Constituent[]> {
+	const rows = await fetchIndexMembers(indexIsin, indexName);
+	return rows.map((row) => ({
+		isin: row.isin,
+		wkn: row.wkn ?? null,
+		name: (row.name.originalValue ?? row.isin).trim(),
+		slug: row.slug ?? null
+	}));
 }
 
 /** Instrument ids for current members of an index (validTo null = open interval). */
@@ -193,6 +206,8 @@ export const masterDataJob: Job = {
 				}
 				updated++;
 			} catch (err) {
+				// API in the penalty box: abort instead of grinding through the rest
+				if (err instanceof BfUnavailableError) throw err;
 				// one bad instrument must not sink the job; gaps retry next run
 				failed++;
 				ctx.log(`master data failed for ${gap.isin}: ${String(err)}`);

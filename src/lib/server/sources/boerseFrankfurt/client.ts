@@ -14,6 +14,13 @@ import { md5 } from '../../util.js';
  *   We always send them.
  * - Requests carrying an `Origin` header are rejected ("Invalid CORS
  *   request") — never send one.
+ * - Sustained request bursts (observed around ~150-200 requests at <1s
+ *   spacing) put the caller in a penalty box: connections are accepted but
+ *   never answered, for many minutes. Hence the slow rate limit, the short
+ *   per-request budget, and the circuit breaker — jobs must fail in minutes
+ *   and retry next run, never grind for hours. Daily steady state is
+ *   designed to need only a handful of requests (equity_search snapshots);
+ *   per-instrument endpoints are for backfill only.
  */
 export const BF_SOURCE = 'boerse_frankfurt';
 
@@ -24,7 +31,27 @@ const TRACING_SALT = 'af5a8d16eb5dc49f8a72b26fd9185475c7a';
 const USER_AGENT =
 	'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36';
 
-const limiter = new RateLimiter(600);
+const limiter = new RateLimiter(2500);
+
+/**
+ * Circuit breaker: after this many consecutive transport failures the API is
+ * considered unavailable (penalty box) and further calls fail immediately.
+ */
+const BREAKER_LIMIT = 3;
+let consecutiveFailures = 0;
+
+export class BfUnavailableError extends Error {
+	constructor() {
+		super(
+			`boerse-frankfurt api unavailable: ${BREAKER_LIMIT} consecutive request failures (rate-limit penalty box?) — aborting until next run`
+		);
+	}
+}
+
+/** Test hook. */
+export function resetBfCircuit(): void {
+	consecutiveFailures = 0;
+}
 
 /**
  * Handshake: Client-Date is a seconds-precision ISO timestamp,
@@ -69,12 +96,23 @@ export async function bfRequest<T>(path: string, options: BfRequestOptions<T>): 
 		headers['content-type'] = 'application/json';
 	}
 
-	const text = await fetchText(url, {
-		method: options.body !== undefined ? 'POST' : 'GET',
-		headers,
-		body,
-		limiter
-	});
+	if (consecutiveFailures >= BREAKER_LIMIT) throw new BfUnavailableError();
+	let text: string;
+	try {
+		// short budget: when the API tarpits, fail fast into the breaker
+		text = await fetchText(url, {
+			method: options.body !== undefined ? 'POST' : 'GET',
+			headers,
+			body,
+			timeoutMs: 20_000,
+			retries: 1,
+			limiter
+		});
+		consecutiveFailures = 0;
+	} catch (err) {
+		consecutiveFailures++;
+		throw err;
+	}
 	if (options.archiveName) await archiveRaw(BF_SOURCE, options.archiveName, text);
 
 	const parsed = options.schema.safeParse(JSON.parse(text));

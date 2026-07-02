@@ -5,16 +5,30 @@ import { z } from 'zod';
 
 const translated = z.object({ originalValue: z.string().nullable() });
 
+export const equitySearchRow = z.object({
+	isin: z.string(),
+	wkn: z.string().nullish(),
+	slug: z.string().nullish(),
+	name: translated,
+	keyData: z
+		.object({
+			earningsPerShareBasic: z.number().nullish(),
+			marketCapitalisation: z.number().nullish(),
+			dividendPerShare: z.number().nullish()
+		})
+		.nullish(),
+	overview: z
+		.object({
+			lastPrice: z.number().nullish(),
+			dateTimeLastPrice: z.string().nullish()
+		})
+		.nullish()
+});
+export type EquitySearchRow = z.infer<typeof equitySearchRow>;
+
 export const equitySearchResponse = z.object({
 	recordsTotal: z.number(),
-	data: z.array(
-		z.object({
-			isin: z.string(),
-			wkn: z.string().nullish(),
-			slug: z.string().nullish(),
-			name: translated
-		})
-	)
+	data: z.array(equitySearchRow)
 });
 export type EquitySearchResponse = z.infer<typeof equitySearchResponse>;
 

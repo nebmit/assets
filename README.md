@@ -20,9 +20,16 @@ positioning and scope.
 | Data | Source | Notes |
 |---|---|---|
 | Index constituents, master data | api.boerse-frankfurt.de | Undocumented JSON API; tracing-header handshake in `sources/boerseFrankfurt/client.ts` |
-| EOD prices (XETR) | api.boerse-frankfurt.de | ~2y backfill, then incremental |
-| Fundamentals bootstrap (EPS, shares, market cap) | api.boerse-frankfurt.de | Daily point-in-time snapshot; ESEF/Unternehmensregister parser is a later milestone |
+| EOD prices (XETR) | api.boerse-frankfurt.de | ~2y `price_history` backfill for new instruments; daily closes come from the snapshot |
+| Fundamentals bootstrap + daily closes (EPS, market cap, dividend, prev close) | api.boerse-frankfurt.de | `equity_search` snapshot, one request per index per day; ESEF/Unternehmensregister parser is a later milestone |
 | Insider transactions (Art. 19 MAR) | BaFin DealingsInfo | Full rolling 12-month CSV export per run, natural-key dedupe |
+
+The BF API silently tarpits callers after request bursts (~150+ at sub-second
+spacing), so the client rate-limits hard (2.5s), keeps per-request budgets
+short, and trips a circuit breaker after 3 consecutive transport failures —
+a penalty-boxed job fails in minutes and self-heals on the next daily run.
+Steady state uses under ten requests per day; per-instrument endpoints are
+reserved for backfill.
 
 ### Signal engine
 
