@@ -145,6 +145,37 @@ export const insiderTransaction = pgTable(
 	]
 );
 
+/**
+ * Company-news headlines, multi-source (BF instrument_news now, EQS later).
+ * `publishedDate` is the point-in-time guard (no lookahead); `externalId` is
+ * the source-native id so full bodies stay fetchable later. Unmatched issuers
+ * from future sources keep null FKs (never dropped), like insider_transaction.
+ */
+export const newsItem = pgTable(
+	'news_item',
+	{
+		id: serial('id').primaryKey(),
+		source: text('source').notNull(),
+		externalId: text('external_id').notNull(),
+		instrumentId: integer('instrument_id').references(() => instrument.id),
+		issuerId: integer('issuer_id').references(() => issuer.id),
+		isin: text('isin'),
+		headline: text('headline').notNull(),
+		/** Undocumented vocabulary, free text; null when the source has no per-item type. */
+		newsType: text('news_type'),
+		publishedAt: timestamp('published_at', { withTimezone: true }).notNull(),
+		/** Berlin-calendar day of publishedAt. */
+		publishedDate: date('published_date').notNull(),
+		naturalKeyHash: text('natural_key_hash').notNull().unique(),
+		raw: jsonb('raw')
+	},
+	(t) => [
+		index('news_item_issuer_idx').on(t.issuerId, t.publishedDate),
+		index('news_item_published_idx').on(t.publishedDate),
+		index('news_item_source_external_idx').on(t.source, t.externalId)
+	]
+);
+
 /** Registry row per curated screen; definitions live in code (single source of truth). */
 export const screen = pgTable('screen', {
 	id: serial('id').primaryKey(),
