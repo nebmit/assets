@@ -51,14 +51,29 @@ returning the ranked gate-passers of a signal run as structured output.
 Requests must send `Accept: application/json, text/event-stream`
 (spec-mandated even though responses are plain JSON). Sessions are
 server-minted via `Mcp-Session-Id` on `initialize` (in-memory, 30 min
-idle expiry; `DELETE /mcp` ends one) and are where the planned user
-accounts will attach. Anonymous for now — it serves the same read-only
-data as the screener page — and guarded by a per-session rate limit
-(30 req/min; `initialize` itself is limited per client IP, so behind a
-proxy set `ADDRESS_HEADER`/`XFF_DEPTH`), a 16 KB body cap, and strict
-param validation. Point an MCP client at `https://<host>/mcp`, or inspect
-locally with `npx @modelcontextprotocol/inspector` against
-`http://localhost:5173/mcp`.
+idle expiry; `DELETE /mcp` ends one) and are bound to the authenticated
+account. Guarded by a per-session rate limit (30 req/min; `initialize`
+itself is limited per client IP, so behind a proxy set
+`ADDRESS_HEADER`/`XFF_DEPTH`), a 16 KB body cap, and strict param
+validation.
+
+**Authentication is required**: every `/mcp` request needs an OAuth 2.1
+bearer token issued by the timben.net authorization server for this
+resource. Anonymous requests get `401` with a `WWW-Authenticate` challenge
+pointing at `/.well-known/oauth-protected-resource` (RFC 9728), from which
+MCP clients discover the authorization server and run the standard
+dynamic-registration + PKCE flow — sign-in there is passkey-only, followed
+by a consent page. Tokens are validated per request against the
+authorization server's introspection endpoint (`INTROSPECTION_SECRET`,
+short in-memory cache) and must carry this server's `RESOURCE_URL` as
+audience. Point an MCP client at `https://<host>/mcp`, or inspect locally
+with `npx @modelcontextprotocol/inspector` against
+`http://localhost:5173/mcp` (with core.timben running as the authorization
+server, see `AUTH_ORIGIN`).
+
+The web UI also participates in browser SSO: `hooks.server.ts` resolves the
+shared `.timben.net` session cookie via the SSO host and exposes
+`locals.user`; the screener itself stays public.
 
 ## Development
 
@@ -74,7 +89,8 @@ npm test                        # unit tests; set TEST_DATABASE_URL for the DB i
 ```
 
 Configuration via environment (see `.env.example`): `DATABASE_URL`,
-`RAW_DATA_DIR` (raw source payload archive), `INGEST_CRON`, `TZ`.
+`RAW_DATA_DIR` (raw source payload archive), `INGEST_CRON`, `TZ`, plus the
+SSO/OAuth wiring `AUTH_ORIGIN`, `RESOURCE_URL`, `INTROSPECTION_SECRET`.
 
 ## Production
 

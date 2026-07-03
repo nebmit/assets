@@ -6,16 +6,24 @@ export interface SessionTransport {
 
 interface SessionEntry {
 	transport: SessionTransport;
+	userUuid: string;
 	lastSeen: number;
+}
+
+/** The live session as seen by the route: transport plus the bound account. */
+export interface Session {
+	transport: SessionTransport;
+	userUuid: string;
 }
 
 /**
  * In-memory store for stateful MCP sessions (Mcp-Session-Id → transport).
- * Sessions are minted by the transport on `initialize` and will be the
- * attachment point for user accounts. Memory is bounded: idle sessions
- * expire lazily and the map is capped, evicting the least-recently-seen
- * session (its transport is closed), so anonymous session minting cannot
- * grow it unboundedly. State is per-process, matching the single
+ * Sessions are minted by the transport on `initialize` and are bound to the
+ * account whose token authenticated that initialize; subsequent requests
+ * must present a token for the same account. Memory is bounded: idle
+ * sessions expire lazily and the map is capped, evicting the
+ * least-recently-seen session (its transport is closed), so session minting
+ * cannot grow it unboundedly. State is per-process, matching the single
  * adapter-node instance.
  */
 export class SessionStore {
@@ -27,8 +35,8 @@ export class SessionStore {
 		private readonly now: () => number = Date.now
 	) {}
 
-	/** Returns the live transport and refreshes the session's idle timer. */
-	get(id: string): SessionTransport | undefined {
+	/** Returns the live session and refreshes its idle timer. */
+	get(id: string): Session | undefined {
 		const entry = this.sessions.get(id);
 		if (entry === undefined) return undefined;
 		const now = this.now();
@@ -40,10 +48,10 @@ export class SessionStore {
 		// re-insert so Map order is least-recently-seen first for eviction
 		this.sessions.delete(id);
 		this.sessions.set(id, entry);
-		return entry.transport;
+		return { transport: entry.transport, userUuid: entry.userUuid };
 	}
 
-	set(id: string, transport: SessionTransport): void {
+	set(id: string, transport: SessionTransport, userUuid: string): void {
 		const now = this.now();
 		for (const [key, entry] of this.sessions) {
 			if (now - entry.lastSeen >= this.idleTtlMs) this.drop(key);
@@ -53,7 +61,7 @@ export class SessionStore {
 			if (oldest === undefined) break;
 			this.drop(oldest);
 		}
-		this.sessions.set(id, { transport, lastSeen: now });
+		this.sessions.set(id, { transport, userUuid, lastSeen: now });
 	}
 
 	/** Forget a session the transport already closed itself (DELETE). */

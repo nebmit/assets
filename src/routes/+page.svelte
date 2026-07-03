@@ -35,7 +35,15 @@
 	/>
 </svelte:head>
 
-<TopBar bind:search />
+<TopBar
+	bind:search
+	user={data.user}
+	signInUrl={data.signInUrl}
+	signOutUrl={data.signOutUrl}
+	connectorUrl={data.connectorUrl}
+	connectorName={data.connectorName}
+	mcpServerUrl={data.mcpServerUrl}
+/>
 
 {#if data.dbError}
 	<EmptyState kind="db-error" />

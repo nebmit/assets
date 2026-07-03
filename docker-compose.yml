@@ -44,6 +44,10 @@ services:
       - NODE_ENV=production
       - PORT=3000
       - DATABASE_URL=postgres://assets:${POSTGRES_PASSWORD:-assets}@postgres:5432/assets
+      # SSO / OAuth wiring (see .env.example)
+      - AUTH_ORIGIN=${AUTH_ORIGIN:-https://timben.net}
+      - RESOURCE_URL=${RESOURCE_URL:-https://assets.timben.net/mcp}
+      - INTROSPECTION_SECRET=${INTROSPECTION_SECRET:-}
     depends_on:
       postgres:
         condition: service_healthy

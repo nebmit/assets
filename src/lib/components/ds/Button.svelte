@@ -3,28 +3,55 @@
 
 	/**
 	 * Primary action control. Actions stay ink: primary is solid black,
-	 * never blue — blue and amber carry data direction only.
+	 * never blue — blue and amber carry data direction only. Pass `href` to
+	 * render a navigating anchor with the same styling (used for links that
+	 * should read as buttons, e.g. sign in / log out).
 	 */
 	interface Props {
 		variant?: 'primary' | 'secondary' | 'ghost';
 		disabled?: boolean;
 		title?: string;
+		href?: string;
+		target?: string;
+		rel?: string;
 		onclick?: (event: MouseEvent) => void;
 		children: Snippet;
 	}
 
-	let { variant = 'primary', disabled = false, title, onclick, children }: Props = $props();
+	let {
+		variant = 'primary',
+		disabled = false,
+		title,
+		href,
+		target,
+		rel,
+		onclick,
+		children
+	}: Props = $props();
 </script>
 
-<button
-	type="button"
-	{disabled}
-	{title}
-	{onclick}
-	class="ds-btn ds-btn--{variant} inline-flex h-[26px] cursor-pointer items-center justify-center gap-[6px] rounded-sm px-[12px] font-sans text-xs font-medium tracking-tight whitespace-nowrap select-none disabled:cursor-not-allowed disabled:opacity-40"
->
-	{@render children()}
-</button>
+{#if href !== undefined}
+	<a
+		{href}
+		{target}
+		{rel}
+		{title}
+		{onclick}
+		class="ds-btn ds-btn--{variant} inline-flex h-[26px] cursor-pointer items-center justify-center gap-[6px] rounded-sm px-[12px] font-sans text-xs font-medium tracking-tight whitespace-nowrap no-underline select-none"
+	>
+		{@render children()}
+	</a>
+{:else}
+	<button
+		type="button"
+		{disabled}
+		{title}
+		{onclick}
+		class="ds-btn ds-btn--{variant} inline-flex h-[26px] cursor-pointer items-center justify-center gap-[6px] rounded-sm px-[12px] font-sans text-xs font-medium tracking-tight whitespace-nowrap select-none disabled:cursor-not-allowed disabled:opacity-40"
+	>
+		{@render children()}
+	</button>
+{/if}
 
 <style>
 	.ds-btn {
@@ -33,6 +60,10 @@
 			background 120ms var(--ease-standard),
 			border-color 120ms var(--ease-standard),
 			color 120ms var(--ease-standard);
+	}
+	.ds-btn:focus-visible {
+		outline: none;
+		box-shadow: var(--ring-focus);
 	}
 	.ds-btn--primary {
 		background: var(--ink);
