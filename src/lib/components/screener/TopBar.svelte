@@ -1,8 +1,8 @@
 <script lang="ts">
-	import Badge from '../ds/Badge.svelte';
-	import Button from '../ds/Button.svelte';
-	import Input from '../ds/Input.svelte';
-	import Tabs from '../ds/Tabs.svelte';
+	import Badge from "../ds/Badge.svelte";
+	import Button from "../ds/Button.svelte";
+	import Input from "../ds/Input.svelte";
+	import Tabs from "../ds/Tabs.svelte";
 
 	/**
 	 * App chrome. "Use in Claude" opens Claude's add-custom-connector flow.
@@ -28,20 +28,24 @@
 		signOutUrl,
 		connectorUrl,
 		connectorName,
-		mcpServerUrl
+		mcpServerUrl,
 	}: Props = $props();
 
 	let copiedMcpUrl = $state(false);
 	let copyReset: ReturnType<typeof setTimeout> | undefined;
 
 	const navTabs = [
-		{ value: 'overview', label: 'Overview' },
-		{ value: 'watchlist', label: 'Watchlist', disabled: true },
-		{ value: 'ignored', label: 'Ignored', disabled: true }
+		{ value: "overview", label: "Overview" },
+		{ value: "watchlist", label: "Watchlist", disabled: true },
+		{ value: "ignored", label: "Ignored", disabled: true },
 	];
 
 	async function copyMcpUrl() {
-		if (typeof navigator === 'undefined' || navigator.clipboard === undefined) return;
+		if (
+			typeof navigator === "undefined" ||
+			navigator.clipboard === undefined
+		)
+			return;
 
 		await navigator.clipboard.writeText(mcpServerUrl);
 		copiedMcpUrl = true;
@@ -86,7 +90,9 @@
 	<Button
 		variant="ghost"
 		onclick={copyMcpUrl}
-		title={copiedMcpUrl ? 'Copied Remote MCP server URL' : `Copy the Remote MCP server URL Claude asks for: ${mcpServerUrl}`}
+		title={copiedMcpUrl
+			? "Copied Remote MCP server URL"
+			: `Copy the Remote MCP server URL Claude asks for: ${mcpServerUrl}`}
 	>
 		{#if copiedMcpUrl}
 			<svg
@@ -115,11 +121,13 @@
 				aria-hidden="true"
 			>
 				<rect x="9" y="9" width="13" height="13" rx="2" />
-				<path d="M5 15 H4 a2 2 0 0 1 -2 -2 V4 a2 2 0 0 1 2 -2 h9 a2 2 0 0 1 2 2 v1" />
+				<path
+					d="M5 15 H4 a2 2 0 0 1 -2 -2 V4 a2 2 0 0 1 2 -2 h9 a2 2 0 0 1 2 2 v1"
+				/>
 			</svg>
 		{/if}
 		<span class="hidden md:inline">
-			{copiedMcpUrl ? 'Copied Remote MCP URL' : 'Copy Remote MCP URL'}
+			{copiedMcpUrl ? "Copied Remote MCP URL" : "Copy Remote MCP URL"}
 		</span>
 	</Button>
 	<Button
@@ -139,7 +147,9 @@
 			stroke-linecap="round"
 			aria-hidden="true"
 		>
-			<path d="M12 3 V21 M3 12 H21 M5.6 5.6 L18.4 18.4 M18.4 5.6 L5.6 18.4" />
+			<path
+				d="M12 3 V21 M3 12 H21 M5.6 5.6 L18.4 18.4 M18.4 5.6 L5.6 18.4"
+			/>
 		</svg>
 		<span class="hidden md:inline">Use in Claude</span>
 	</Button>
@@ -161,7 +171,9 @@
 				<path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
 				<circle cx="12" cy="7" r="4" />
 			</svg>
-			<span class="font-mono text-2xs text-text-tertiary tabular-nums">{user.uuid.slice(0, 8)}</span>
+			<span class="font-mono text-2xs text-text-tertiary tabular-nums"
+				>{user.uuid.slice(0, 8)}</span
+			>
 			{#if user.elevated}
 				<Badge tone="ink" variant="soft">admin</Badge>
 			{/if}

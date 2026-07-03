@@ -75,6 +75,11 @@ The web UI also participates in browser SSO: `hooks.server.ts` resolves the
 shared `.timben.net` session cookie via the SSO host and exposes
 `locals.user`; the screener itself stays public.
 
+For future user-owned data, `src/lib/crypto` provides client-side
+encryption keyed by the shared timben.net passkeys via the WebAuthn PRF
+extension (no passwords, no recovery email — see its README for the
+envelope pattern and constraints).
+
 ## Development
 
 ```bash

@@ -1,5 +1,5 @@
 <script lang="ts">
-	import type { Snippet } from 'svelte';
+	import type { Snippet } from "svelte";
 
 	/**
 	 * Primary action control. Actions stay ink: primary is solid black,
@@ -8,7 +8,7 @@
 	 * should read as buttons, e.g. sign in / log out).
 	 */
 	interface Props {
-		variant?: 'primary' | 'secondary' | 'ghost';
+		variant?: "primary" | "secondary" | "ghost";
 		disabled?: boolean;
 		title?: string;
 		href?: string;
@@ -19,14 +19,14 @@
 	}
 
 	let {
-		variant = 'primary',
+		variant = "primary",
 		disabled = false,
 		title,
 		href,
 		target,
 		rel,
 		onclick,
-		children
+		children,
 	}: Props = $props();
 </script>
 

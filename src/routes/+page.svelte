@@ -1,14 +1,14 @@
 <script lang="ts">
-	import { formatAsOf } from '$lib/format.js';
-	import { matchesSearch } from '$lib/screener/filter.js';
-	import AssetCard from '$lib/components/screener/AssetCard.svelte';
-	import EmptyState from '$lib/components/screener/EmptyState.svelte';
-	import TopBar from '$lib/components/screener/TopBar.svelte';
-	import type { PageProps } from './$types.js';
+	import { formatAsOf } from "$lib/format.js";
+	import { matchesSearch } from "$lib/screener/filter.js";
+	import AssetCard from "$lib/components/screener/AssetCard.svelte";
+	import EmptyState from "$lib/components/screener/EmptyState.svelte";
+	import TopBar from "$lib/components/screener/TopBar.svelte";
+	import type { PageProps } from "./$types.js";
 
 	let { data }: PageProps = $props();
 
-	let search = $state('');
+	let search = $state("");
 
 	const payload = $derived(data.payload);
 	const cards = $derived(payload?.cards ?? []);
@@ -17,9 +17,13 @@
 	/** Freshest price date across the grid; the run date is the fallback. */
 	const asOfDate = $derived(
 		cards.reduce<string | null>(
-			(latest, c) => (c.priceDate !== null && (latest === null || c.priceDate > latest) ? c.priceDate : latest),
-			null
-		) ?? payload?.runDate
+			(latest, c) =>
+				c.priceDate !== null &&
+				(latest === null || c.priceDate > latest)
+					? c.priceDate
+					: latest,
+			null,
+		) ?? payload?.runDate,
 	);
 
 	function screenHref(slug: string): string {
@@ -53,18 +57,29 @@
 	<div
 		class="px-[18px] pt-5 pb-8 sm:px-[22px] sm:pt-6 sm:pb-10 lg:px-8 lg:pt-8 lg:pb-12 xl:px-10 xl:pt-10 xl:pb-14 2xl:px-12"
 	>
-		<div class="mb-[14px] flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+		<div
+			class="mb-[14px] flex flex-wrap items-center justify-between gap-x-4 gap-y-2"
+		>
 			<div class="flex flex-wrap items-center gap-x-[10px] gap-y-2">
 				<h2 class="m-0 text-xl font-medium tracking-tight">
-					<span class="mr-[5px] align-baseline text-sm font-normal text-text-muted">From</span>DAX /
-					MDAX / SDAX
+					<span
+						class="mr-[5px] align-baseline text-sm font-normal text-text-muted"
+						>From</span
+					>DAX / MDAX / SDAX
 				</h2>
 				<span class="font-mono text-xs text-text-tertiary tabular-nums">
-					{#if searchTerm !== ''}
-						<span class="font-semibold text-text-secondary">{filtered.length}</span> shown ·
+					{#if searchTerm !== ""}
+						<span class="font-semibold text-text-secondary"
+							>{filtered.length}</span
+						> shown ·
 					{/if}
-					<span class="font-semibold text-text-secondary">{cards.length}</span> out of
-					<span class="font-semibold text-text-secondary">{payload.universeSize ?? '—'}</span> passed
+					<span class="font-semibold text-text-secondary"
+						>{cards.length}</span
+					>
+					out of
+					<span class="font-semibold text-text-secondary"
+						>{payload.universeSize ?? "—"}</span
+					> passed
 				</span>
 				<nav
 					class="inline-flex flex-wrap items-baseline gap-x-[7px] gap-y-1 font-sans text-xs"
@@ -77,7 +92,7 @@
 						{/if}
 						<a
 							href={screenHref(screen.slug)}
-							aria-current={active ? 'page' : undefined}
+							aria-current={active ? "page" : undefined}
 							class="border-b pb-px whitespace-nowrap no-underline transition-colors duration-[120ms] hover:border-border-default hover:text-text-primary"
 							class:border-border-strong={active}
 							class:font-medium={active}
@@ -92,7 +107,9 @@
 				</nav>
 			</div>
 			{#if asOfDate}
-				<span class="font-mono text-2xs text-text-muted tabular-nums">{formatAsOf(asOfDate)}</span>
+				<span class="font-mono text-2xs text-text-muted tabular-nums"
+					>{formatAsOf(asOfDate)}</span
+				>
 			{/if}
 		</div>
 
