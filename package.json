@@ -21,7 +21,7 @@
 		"@modelcontextprotocol/sdk": "^1.29.0",
 		"croner": "^9.1.0",
 		"csv-parse": "^6.1.0",
-		"drizzle-orm": "^0.44.2",
+		"drizzle-orm": "^0.45.2",
 		"postgres": "^3.4.7",
 		"zod": "^3.25.76"
 	},
@@ -34,7 +34,7 @@
 		"@tailwindcss/vite": "^4.3.2",
 		"@types/node": "^24.13.2",
 		"drizzle-kit": "^0.31.4",
-		"esbuild": "^0.25.6",
+		"esbuild": "^0.28.1",
 		"svelte": "^5.56.4",
 		"svelte-check": "^4.7.1",
 		"tailwindcss": "^4.1.11",
