@@ -100,6 +100,8 @@ SSO/OAuth wiring `AUTH_ORIGIN`, `RESOURCE_URL`, `INTROSPECTION_SECRET`.
 ## Production
 
 One image (see `Dockerfile`) serves both containers: the SvelteKit server
-(`node build`) and the worker (`node build/worker.js schedule`), wired up in
-`docker-compose.yml`. The worker applies migrations at boot and runs the
-pipeline daily at 06:30 Europe/Berlin.
+(`node build`) and the worker (`node build/worker.js schedule`). Production
+composition is owned by the infra repo at
+`services/assets/compose.caddy.yml`; this repo's `docker-compose.yml` is only
+for the local Postgres dependency. The worker applies migrations at boot and
+runs the pipeline daily at 06:30 Europe/Berlin by default.

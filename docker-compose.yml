@@ -1,4 +1,6 @@
-# Docker Compose for local development
+# Docker Compose for local development: database only.
+# Run the app and worker from npm scripts so production deployment stays owned
+# by the infra repo compose file.
 services:
   postgres:
     image: postgres:17-alpine
@@ -17,48 +19,5 @@ services:
       timeout: 5s
       retries: 5
 
-  worker:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    command: ["node", "build/worker.js", "schedule"]
-    environment:
-      - NODE_ENV=production
-      - TZ=Europe/Berlin
-      - DATABASE_URL=postgres://assets:${POSTGRES_PASSWORD:-assets}@postgres:5432/assets
-      - RAW_DATA_DIR=/data/raw
-    volumes:
-      - rawdata:/data/raw
-    depends_on:
-      postgres:
-        condition: service_healthy
-    restart: unless-stopped
-
-  assets:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    ports:
-      - "3000:3000"
-    environment:
-      - NODE_ENV=production
-      - PORT=3000
-      - DATABASE_URL=postgres://assets:${POSTGRES_PASSWORD:-assets}@postgres:5432/assets
-      # SSO / OAuth wiring (see .env.example)
-      - AUTH_ORIGIN=${AUTH_ORIGIN:-https://timben.net}
-      - RESOURCE_URL=${RESOURCE_URL:-https://assets.timben.net/mcp}
-      - INTROSPECTION_SECRET=${INTROSPECTION_SECRET:-}
-    depends_on:
-      postgres:
-        condition: service_healthy
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3000', (res) => { process.exit(res.statusCode === 200 ? 0 : 1) })"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 40s
-
 volumes:
   pgdata:
-  rawdata:
