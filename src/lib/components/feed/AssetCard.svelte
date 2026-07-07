@@ -1,10 +1,12 @@
 <script lang="ts">
 	import { FILINGS_SEARCH_URL } from '$lib/externalLinks.js';
+	import { FINANCIAL_TERMS, type FinancialTerm } from '$lib/financialTerms.js';
 	import { formatCompactEur, formatPrice, formatRatio } from '$lib/format.js';
 	import type { CardData } from '$lib/feed/types.js';
 	import Badge from '../ds/Badge.svelte';
 	import DeltaBadge from '../ds/DeltaBadge.svelte';
 	import Link from '../ds/Link.svelte';
+	import TermHelp from '../ds/TermHelp.svelte';
 	import InsiderList from './InsiderList.svelte';
 	import NewsList from './NewsList.svelte';
 	import PriceChart from './PriceChart.svelte';
@@ -27,6 +29,16 @@
 	const lifecycleTone = $derived(
 		card.lifecycle === 'new' || card.lifecycle === 'strengthening' ? 'up' : 'neutral'
 	);
+
+	const REASON_TERM_KEYS: Record<string, keyof typeof FINANCIAL_TERMS> = {
+		insider_conviction: 'insiderConviction',
+		relative_value: 'relativeValue'
+	};
+
+	function termForReason(signal: string): FinancialTerm | null {
+		const key = REASON_TERM_KEYS[signal];
+		return key === undefined ? null : FINANCIAL_TERMS[key];
+	}
 </script>
 
 <article
@@ -40,7 +52,18 @@
 				<Badge tone={lifecycleTone} variant="outline">{card.lifecycle}</Badge>
 			{/if}
 			{#each card.reasons as reason (reason.signal)}
-				<Badge tone="neutral">{reason.headline}</Badge>
+				{@const term = termForReason(reason.signal)}
+				<span class="inline-flex items-center gap-[4px]">
+					<Badge tone="neutral">{reason.headline}</Badge>
+					{#if term !== null}
+						<TermHelp
+							term={term.term}
+							definition={term.definition}
+							clarification={term.clarification}
+							align="left"
+						/>
+					{/if}
+				</span>
 			{/each}
 		</div>
 	{/if}
@@ -79,7 +102,14 @@
 			class="flex flex-none flex-col px-[18px] py-3 max-md:flex-row max-md:flex-wrap max-md:items-start max-md:justify-between max-md:gap-4 md:w-[170px]"
 		>
 			<div class="flex flex-col gap-[5px]">
-				<span class="micro-label">P / E vs sector</span>
+				<TermHelp
+					term={FINANCIAL_TERMS.pe.term}
+					definition={FINANCIAL_TERMS.pe.definition}
+					clarification={FINANCIAL_TERMS.pe.clarification}
+					align="right"
+				>
+					<span class="micro-label">P / E vs sector</span>
+				</TermHelp>
 				<div class="flex items-baseline gap-[7px]">
 					{#if card.pe === null}
 						<span class="font-mono text-xl font-medium text-text-muted">—</span>
@@ -103,24 +133,51 @@
 			<div
 				class="flex items-baseline gap-[7px] md:mt-3 md:border-t md:border-border-subtle md:pt-[11px]"
 			>
-				<span class="font-sans text-2xs font-medium text-text-tertiary uppercase">EPS</span>
+				<TermHelp
+					term={FINANCIAL_TERMS.eps.term}
+					definition={FINANCIAL_TERMS.eps.definition}
+					align="right"
+				>
+					<span class="font-sans text-2xs font-medium text-text-tertiary uppercase">EPS</span>
+				</TermHelp>
 				<span class="font-mono text-sm font-medium tabular-nums">
 					{card.eps === null ? '—' : `€${card.eps.toFixed(2)}`}
 				</span>
-				<span class="font-mono text-2xs text-text-muted">ttm</span>
+				<TermHelp
+					term={FINANCIAL_TERMS.ttm.term}
+					definition={FINANCIAL_TERMS.ttm.definition}
+					align="right"
+				>
+					<span class="font-mono text-2xs text-text-muted">ttm</span>
+				</TermHelp>
 			</div>
 			<div
 				class="flex items-baseline gap-[7px] md:mt-3 md:border-t md:border-border-subtle md:pt-[11px]"
 			>
-				<span class="micro-label whitespace-nowrap">Mkt cap</span>
+				<TermHelp
+					term={FINANCIAL_TERMS.marketCap.term}
+					definition={FINANCIAL_TERMS.marketCap.definition}
+					clarification={FINANCIAL_TERMS.marketCap.clarification}
+					align="right"
+				>
+					<span class="micro-label whitespace-nowrap">Mkt cap</span>
+				</TermHelp>
 				<span class="font-mono text-sm font-medium tabular-nums">
 					{card.marketCap === null ? '—' : `€${formatCompactEur(card.marketCap)}`}
 				</span>
 			</div>
 			<div class="md:mt-auto md:pt-3">
-				<Link href={FILINGS_SEARCH_URL} external variant="quiet" size="xs">
-					Filings
-				</Link>
+				<span class="inline-flex items-center gap-[5px]">
+					<Link href={FILINGS_SEARCH_URL} external variant="quiet" size="xs">
+						Filings
+					</Link>
+					<TermHelp
+						term={FINANCIAL_TERMS.filings.term}
+						definition={FINANCIAL_TERMS.filings.definition}
+						clarification={FINANCIAL_TERMS.filings.clarification}
+						align="right"
+					/>
+				</span>
 			</div>
 		</div>
 	</div>

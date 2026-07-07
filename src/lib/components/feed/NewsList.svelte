@@ -1,8 +1,10 @@
 <script lang="ts">
+	import { FINANCIAL_TERMS } from '$lib/financialTerms.js';
 	import { formatDayMonth } from '$lib/format.js';
 	import type { NewsRowView } from '$lib/feed/types.js';
 	import Badge from '../ds/Badge.svelte';
 	import Link from '../ds/Link.svelte';
+	import TermHelp from '../ds/TermHelp.svelte';
 
 	/**
 	 * Up to two recent regulatory headlines. No per-item URL is ingested yet,
@@ -19,7 +21,16 @@
 </script>
 
 <div class="flex w-full flex-none flex-col px-5 pt-[11px] pb-[13px] sm:w-[312px]">
-	<span class="micro-label mb-[3px]">Regulatory news</span>
+	<span class="mb-[3px]">
+		<TermHelp
+			term={FINANCIAL_TERMS.regulatoryNews.term}
+			definition={FINANCIAL_TERMS.regulatoryNews.definition}
+			clarification={FINANCIAL_TERMS.regulatoryNews.clarification}
+			align="right"
+		>
+			<span class="micro-label">Regulatory news</span>
+		</TermHelp>
+	</span>
 	{#if news.length === 0}
 		<div class="border-t border-border-subtle py-[7px] font-mono text-xs text-text-muted">—</div>
 	{:else}

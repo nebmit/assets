@@ -1,9 +1,11 @@
 <script lang="ts">
 	import { bafinDealingsUrl } from '$lib/externalLinks.js';
+	import { FINANCIAL_TERMS } from '$lib/financialTerms.js';
 	import { ageOpacity, formatCompactEur, formatDayMonth } from '$lib/format.js';
 	import type { InsiderRowView, PartyRole, TransactionSide } from '$lib/feed/types.js';
 	import Badge from '../ds/Badge.svelte';
 	import Link from '../ds/Link.svelte';
+	import TermHelp from '../ds/TermHelp.svelte';
 
 	/**
 	 * Up to five recent buy/sell directors' dealings. Rows fade with age but never
@@ -43,8 +45,23 @@
 
 <div class="min-w-0 flex-1 px-5 pt-[11px] pb-[13px] max-sm:border-b sm:border-r border-border-subtle">
 	<div class="mb-[3px] flex items-baseline justify-between">
-		<span class="micro-label">Insider trades</span>
-		<Link href={bafinUrl} external variant="quiet" size="xs">BaFin</Link>
+		<TermHelp
+			term={FINANCIAL_TERMS.insiderTrades.term}
+			definition={FINANCIAL_TERMS.insiderTrades.definition}
+			clarification={FINANCIAL_TERMS.insiderTrades.clarification}
+			align="left"
+		>
+			<span class="micro-label">Insider trades</span>
+		</TermHelp>
+		<span class="inline-flex items-center gap-[5px]">
+			<Link href={bafinUrl} external variant="quiet" size="xs">BaFin</Link>
+			<TermHelp
+				term={FINANCIAL_TERMS.bafin.term}
+				definition={FINANCIAL_TERMS.bafin.definition}
+				clarification={FINANCIAL_TERMS.bafin.clarification}
+				align="right"
+			/>
+		</span>
 	</div>
 	{#if displayedInsiders.length === 0}
 		<div class="border-t border-border-subtle py-[7px] font-mono text-xs text-text-muted">
