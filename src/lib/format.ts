@@ -66,7 +66,7 @@ export function ageOpacity(dateIso: string, asOfIso: string): number {
 	return Math.max(0.5, 1 - ((daysAgo - 7) * 0.5) / 83);
 }
 
-/** The screen header's as-of line. We only ingest EOD data — no intraday time. */
+/** The feed header's as-of line. We only ingest EOD data — no intraday time. */
 export function formatAsOf(dateIso: string): string {
 	return `As of ${formatDayMonthYear(dateIso)} · EOD close · Börse Frankfurt`;
 }

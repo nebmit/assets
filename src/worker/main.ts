@@ -2,7 +2,7 @@
  * Worker entrypoint.
  *   schedule            run the daily pre-market batch on a cron (default)
  *   run [--job=x|all] [--date=YYYY-MM-DD]   execute jobs once
- *   report [--screen=x] [--date=..]         print ranked signals
+ *   report [--signal=x] [--date=..]          print surfaced signals
  *   migrate             apply pending DB migrations
  */
 import { Cron } from 'croner';
@@ -10,8 +10,13 @@ import { config } from '../lib/server/config.js';
 import { closeDb, getDb, runMigrations } from '../lib/server/db/index.js';
 import { allJobs, findJob } from '../lib/server/pipeline/jobs.js';
 import { runJobs } from '../lib/server/pipeline/runner.js';
-import { baseScreens, COMPOSITE_SLUG } from '../lib/server/signals/engine.js';
-import { latestRunDate, screenReport, summarizeRationale } from '../lib/server/signals/report.js';
+import { signalDefinitions, SURFACED_SLUG } from '../lib/server/signals/engine.js';
+import {
+	latestRunDate,
+	performanceSummary,
+	signalReport,
+	summarizeRationale
+} from '../lib/server/signals/report.js';
 import { isoDate } from '../lib/server/util.js';
 
 function arg(name: string): string | undefined {
@@ -59,17 +64,29 @@ async function report(): Promise<void> {
 	const runDate = arg('date') ?? (await latestRunDate(db));
 	if (!runDate) throw new Error('no signal runs found — run the pipeline first');
 	const top = Number(arg('top') ?? 10);
-	const slugs = arg('screen') ? [arg('screen') as string] : [...baseScreens.map((s) => s.slug), COMPOSITE_SLUG];
+	const slugs = arg('signal') ? [arg('signal') as string] : [SURFACED_SLUG, ...signalDefinitions.map((s) => s.slug)];
 
 	for (const slug of slugs) {
-		const data = await screenReport(db, slug, runDate, top);
-		if (!data) throw new Error(`no signals for screen "${slug}" on ${runDate}`);
-		console.log(`\n${slug} — ${runDate} (universe ${data.universeSize}, ${data.passed} passed gate)`);
+		const data = await signalReport(db, slug, runDate, top);
+		if (!data) throw new Error(`no signals for "${slug}" on ${runDate}`);
+		console.log(`\n${slug} — ${runDate} (universe ${data.universeSize}, ${data.passed} surfaced)`);
 		for (const row of data.top) {
 			const ticker = (row.ticker ?? '—').padEnd(6);
-			const pct = `p${Math.round(row.percentile * 100)}`.padStart(4);
+			const severity = row.score.toFixed(2).padStart(5);
 			console.log(
-				`  #${String(row.rank).padStart(2)} ${ticker} ${pct}  ${row.name}  [${summarizeRationale(slug, row.rationale)}]`
+				`  #${String(row.rank).padStart(2)} ${ticker} ${severity}  ${row.name}  [${summarizeRationale(slug, row.rationale)}]`
+			);
+		}
+	}
+
+	const performance = await performanceSummary(getDb());
+	if (performance.length > 0) {
+		console.log('\nforward returns of surfaced signals (vs equal-weight universe):');
+		for (const row of performance) {
+			const excess = row.avgExcess === null ? '   n/a' : `${(row.avgExcess * 100).toFixed(1).padStart(6)}%`;
+			const hit = row.hitRate === null ? ' n/a' : `${Math.round(row.hitRate * 100)}%`;
+			console.log(
+				`  ${row.signal.padEnd(20)} ${String(row.horizonDays).padStart(3)}d  n=${String(row.n).padStart(4)}  avg ${(row.avgReturn * 100).toFixed(1).padStart(6)}%  excess ${excess}  hit ${hit}`
 			);
 		}
 	}

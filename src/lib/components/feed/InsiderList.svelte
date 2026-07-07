@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { bafinDealingsUrl } from '$lib/externalLinks.js';
 	import { ageOpacity, formatCompactEur, formatDayMonth } from '$lib/format.js';
-	import type { InsiderRowView, PartyRole, TransactionSide } from '$lib/screener/types.js';
+	import type { InsiderRowView, PartyRole, TransactionSide } from '$lib/feed/types.js';
 	import Badge from '../ds/Badge.svelte';
 	import Link from '../ds/Link.svelte';
 

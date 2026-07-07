@@ -1,12 +1,14 @@
 import type {
 	CardData,
 	InsiderRowView,
+	LifecycleState,
 	NewsRowView,
-	PricePoint
-} from '../../screener/types.js';
+	PricePoint,
+	ReasonView
+} from '../../feed/types.js';
 import type { RelativeValueView } from './rationale.js';
 
-/** A composite gate-passer joined with its instrument + issuer identity. */
+/** A surfaced asset joined with its instrument + issuer identity. */
 export interface PasserRow {
 	instrumentId: number;
 	issuerId: number;
@@ -15,6 +17,10 @@ export interface PasserRow {
 	wkn: string | null;
 	name: string;
 	sector: string | null;
+	/** Fired signals with evidence one-liners. */
+	reasons: ReasonView[];
+	/** Day-over-day state vs the previous run (null without a previous run). */
+	lifecycle: LifecycleState | null;
 }
 
 export interface LatestPriceView {
@@ -54,6 +60,8 @@ export function assembleCards(
 			name: p.name,
 			sector: p.sector,
 			rank: p.rank,
+			reasons: p.reasons,
+			lifecycle: p.lifecycle,
 			price: latest?.close ?? valuation?.close ?? null,
 			priceDate: latest?.tradeDate ?? null,
 			series: seriesByInstrument.get(p.instrumentId) ?? [],

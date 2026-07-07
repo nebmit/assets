@@ -8,11 +8,12 @@ positioning and scope.
 
 `Ingestion → Normalization & Store → Signal Engine → Surfacing Layer`
 
-- **Web app** (SvelteKit, `src/routes`) — surfacing UI: the screener screen
-  (composite gate-passers as rich cards — price chart, valuation vs sector,
-  insider dealings, regulatory news), SSR-loaded point-in-time from the
-  latest signal run. Design tokens live in `src/app.css`; the design
-  system's primitives are reimplemented in `src/lib/components/ds`.
+- **Web app** (SvelteKit, `src/routes`) — surfacing UI: the surfaced feed
+  (assets whose signals fired, as rich cards — evidence badges with
+  day-over-day lifecycle, price chart, valuation vs sector, insider
+  dealings, regulatory news), SSR-loaded point-in-time from the latest
+  signal run. Design tokens live in `src/app.css`; the design system's
+  primitives are reimplemented in `src/lib/components/ds`.
 - **Worker** (`src/worker/main.ts`) — daily pre-market batch: ingestion +
   signal engine, scheduled in-process (croner). Shares all domain code with
   the app via `src/lib/server` (kept free of SvelteKit-specific imports).
@@ -37,17 +38,39 @@ reserved for backfill.
 
 ### Signal engine
 
-Screen = boolean gate + continuous score, percentile-ranked within the daily
-universe of gate-passers; raw inputs stored in `signal.rationale`. All data
-access is point-in-time (`published_date <= run_date`, no lookahead). v1
-screens: `insider_conviction`, `relative_value`, `value_insider_composite`
-(equal weights).
+A signal = an absolute materiality gate + a calibrated severity in [0, 1]
+(~0.2 barely material, ~0.5 strong, ~1 exceptional — comparable across
+runs, so an empty day is a valid, meaningful answer). Raw inputs live in
+`signal.rationale`, including a human-readable `headline`. All data access
+is point-in-time (`published_date <= run_date`, no lookahead).
+
+- `insider_conviction` (v2): role-weighted, publication-decayed insider
+  share *buying* over 30 days. Gate: cap-band floor (€100k DAX / €50k MDAX
+  / €25k SDAX role-weighted; halved for ≥2-buyer clusters). Sells only
+  dampen, never erase, buys; buying into a falling price boosts severity.
+- `relative_value` (v2): P/E vs the super-sector peer median
+  (`signals/sectors.ts` buckets BF's granular sectors; index median as
+  fallback). Gate: a *material* discount (≥15%), fresh close, positive
+  EPS, and no falling knife (>35% six-month drop). Dividend yield adds a
+  small support bonus.
+- `surfaced`: the headline feed — the *union* of fired signals, combined by
+  noisy-or (`1 − Π(1 − severity)`). One fired signal surfaces the asset;
+  more are confirmations, never a requirement. Per-row `reasons` carry each
+  fired signal's headline + severity.
+
+The `performance` job closes the loop: once 30/91/182 calendar days have
+elapsed it records each fired signal's forward return against the
+equal-weight universe mean into `signal_performance` (idempotent, catches
+up daily); `worker report` prints the per-signal hit rates — the basis for
+tuning floors and severity curves against measured outcomes.
 
 ### MCP endpoint
 
-`POST /mcp` exposes the screens to MCP clients (Streamable HTTP, JSON
-responses only — no SSE): one read-only tool per screen (`screen_<slug>`)
-returning the ranked gate-passers of a signal run as structured output.
+`POST /mcp` exposes the signals to MCP clients (Streamable HTTP, JSON
+responses only — no SSE): `surface_latest` returns the surfaced feed of a
+signal run (strongest first, with per-row `reasons`), and one read-only
+facet tool per component signal (`signal_<slug>`) returns that signal's
+fired rows, all as structured output.
 Requests must send `Accept: application/json, text/event-stream`
 (spec-mandated even though responses are plain JSON). Sessions are
 server-minted via `Mcp-Session-Id` on `initialize` (in-memory, 30 min
@@ -73,7 +96,7 @@ server, see `AUTH_ORIGIN`).
 
 The web UI also participates in browser SSO: `hooks.server.ts` resolves the
 shared `.timben.net` session cookie via the SSO host and exposes
-`locals.user`; the screener itself stays public.
+`locals.user`; the feed itself stays public.
 
 For future user-owned data, `src/lib/crypto` provides client-side
 encryption keyed by the shared timben.net passkeys via the WebAuthn PRF
@@ -89,7 +112,7 @@ npm run worker -- run           # migrate + full pipeline for today
 npm run worker -- run --job=signals --date=2026-07-01
 npm run worker -- report --top=10
 npm run seed:demo               # DESTRUCTIVE dev seed: demo universe + real signal run
-npm run dev                     # web app (screener at /)
+npm run dev                     # web app (surfaced feed at /)
 npm test                        # unit tests; set TEST_DATABASE_URL for the DB integration test
 ```
 

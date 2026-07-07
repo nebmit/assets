@@ -10,6 +10,8 @@ function card(overrides: Partial<CardData>): CardData {
 		name: 'SAP SE',
 		sector: 'Software',
 		rank: 1,
+		reasons: [],
+		lifecycle: null,
 		price: null,
 		priceDate: null,
 		series: [],

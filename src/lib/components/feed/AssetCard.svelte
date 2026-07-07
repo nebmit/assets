@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { FILINGS_SEARCH_URL } from '$lib/externalLinks.js';
 	import { formatCompactEur, formatPrice, formatRatio } from '$lib/format.js';
-	import type { CardData } from '$lib/screener/types.js';
+	import type { CardData } from '$lib/feed/types.js';
 	import Badge from '../ds/Badge.svelte';
 	import DeltaBadge from '../ds/DeltaBadge.svelte';
 	import Link from '../ds/Link.svelte';
@@ -10,9 +10,10 @@
 	import PriceChart from './PriceChart.svelte';
 
 	/**
-	 * One equity as a rich card: basics + hero price, scrubbable price chart,
-	 * valuation vs sector, then insider trades and regulatory news on a
-	 * sunken second row. Surfaces facts only — no rank, no recommendation.
+	 * One equity as a rich card: why it was surfaced (fired signals as factual
+	 * evidence badges + day-over-day state), basics + hero price, scrubbable
+	 * price chart, valuation vs sector, then insider trades and regulatory
+	 * news on a sunken second row. Surfaces facts only — no recommendation.
 	 */
 	interface Props {
 		card: CardData;
@@ -22,11 +23,27 @@
 	let { card, runDate }: Props = $props();
 
 	const equityUrl = $derived(`https://www.boerse-frankfurt.de/equity/${card.isin.toLowerCase()}`);
+
+	const lifecycleTone = $derived(
+		card.lifecycle === 'new' || card.lifecycle === 'strengthening' ? 'up' : 'neutral'
+	);
 </script>
 
 <article
 	class="flex flex-col overflow-hidden rounded-md border border-border-subtle bg-surface-sunken shadow-xs"
 >
+	{#if card.reasons.length > 0 || card.lifecycle !== null}
+		<div
+			class="flex flex-wrap items-center gap-[6px] border-b border-border-subtle bg-surface-card px-5 py-[9px]"
+		>
+			{#if card.lifecycle !== null}
+				<Badge tone={lifecycleTone} variant="outline">{card.lifecycle}</Badge>
+			{/if}
+			{#each card.reasons as reason (reason.signal)}
+				<Badge tone="neutral">{reason.headline}</Badge>
+			{/each}
+		</div>
+	{/if}
 	<div class="flex flex-col items-stretch bg-surface-card md:flex-row">
 		<div
 			class="flex flex-none flex-col justify-start gap-2 border-b border-border-subtle px-5 pt-4 pb-[14px] max-md:flex-row max-md:items-center max-md:justify-between md:w-[230px] md:border-r md:border-b-0"

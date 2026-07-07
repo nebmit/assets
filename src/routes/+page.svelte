@@ -1,9 +1,9 @@
 <script lang="ts">
 	import { formatAsOf } from "$lib/format.js";
-	import { matchesSearch } from "$lib/screener/filter.js";
-	import AssetCard from "$lib/components/screener/AssetCard.svelte";
-	import EmptyState from "$lib/components/screener/EmptyState.svelte";
-	import TopBar from "$lib/components/screener/TopBar.svelte";
+	import { matchesSearch } from "$lib/feed/filter.js";
+	import AssetCard from "$lib/components/feed/AssetCard.svelte";
+	import EmptyState from "$lib/components/feed/EmptyState.svelte";
+	import TopBar from "$lib/components/feed/TopBar.svelte";
 	import type { PageProps } from "./$types.js";
 
 	let { data }: PageProps = $props();
@@ -26,8 +26,8 @@
 		) ?? payload?.runDate,
 	);
 
-	function screenHref(slug: string): string {
-		return `?screen=${slug}`;
+	function viewHref(slug: string): string {
+		return `?view=${slug}`;
 	}
 </script>
 
@@ -35,7 +35,7 @@
 	<title>DAX / MDAX / SDAX · assets</title>
 	<meta
 		name="description"
-		content="Ranked surfacing across DAX, MDAX and SDAX — prices, valuation vs sector, insider dealings and regulatory news."
+		content="Surfaced assets across DAX, MDAX and SDAX — signal evidence, prices, valuation vs sector, insider dealings and regulatory news."
 	/>
 </svelte:head>
 
@@ -79,19 +79,19 @@
 					out of
 					<span class="font-semibold text-text-secondary"
 						>{payload.universeSize ?? "—"}</span
-					> passed
+					> surfaced
 				</span>
 				<nav
 					class="inline-flex flex-wrap items-baseline gap-x-[7px] gap-y-1 font-sans text-xs"
-					aria-label="Screen"
+					aria-label="View"
 				>
-					{#each payload.screens as screen, index (screen.slug)}
-						{@const active = screen.slug === payload.screen.slug}
+					{#each payload.views as view, index (view.slug)}
+						{@const active = view.slug === payload.view.slug}
 						{#if index > 0}
 							<span class="text-text-muted">/</span>
 						{/if}
 						<a
-							href={screenHref(screen.slug)}
+							href={viewHref(view.slug)}
 							aria-current={active ? "page" : undefined}
 							class="border-b pb-px whitespace-nowrap no-underline transition-colors duration-[120ms] hover:border-border-default hover:text-text-primary"
 							class:border-border-strong={active}
@@ -101,7 +101,7 @@
 							class:text-text-tertiary={!active}
 							style:transition-timing-function="var(--ease-standard)"
 						>
-							{screen.name}
+							{view.name}
 						</a>
 					{/each}
 				</nav>

@@ -1,18 +1,31 @@
-import { and, eq, inArray } from 'drizzle-orm';
+import { and, desc, eq, inArray, lt } from 'drizzle-orm';
 import { sql } from 'drizzle-orm';
 import type { Db } from '../db/index.js';
-import { instrument, issuer, screen, signal, signalRun } from '../db/schema.js';
+import { instrument, issuer, signal, signalDefinition, signalRun } from '../db/schema.js';
 import { latestRunDate } from '../signals/report.js';
 import { addDays } from '../util.js';
 import {
-	DEFAULT_SCREEN_SLUG,
-	SCREENER_SCREENS,
-	screenerScreenBySlug,
-	type ScreenerScreenSlug
-} from '../../screener/screens.js';
-import type { InsiderRowView, NewsRowView, PricePoint, ScreenerPayload } from '../../screener/types.js';
+	DEFAULT_VIEW_SLUG,
+	FEED_VIEWS,
+	feedViewBySlug,
+	type FeedViewSlug
+} from '../../feed/views.js';
+import type {
+	InsiderRowView,
+	LifecycleState,
+	NewsRowView,
+	PricePoint,
+	ReasonView,
+	FeedPayload
+} from '../../feed/types.js';
 import { assembleCards, type LatestPriceView, type PasserRow } from './assemble.js';
-import { parseMarketCap, parseRelativeValueRationale, type RelativeValueView } from './rationale.js';
+import {
+	parseHeadline,
+	parseMarketCap,
+	parseReasons,
+	parseRelativeValueRationale,
+	type RelativeValueView
+} from './rationale.js';
 
 const RELATIVE_VALUE_SLUG = 'relative_value';
 const INSIDER_CONVICTION_SLUG = 'insider_conviction';
@@ -30,33 +43,33 @@ const SERIES_WINDOW_DAYS = 371;
 const HI_LO_WINDOW_DAYS = 365;
 
 /**
- * Load everything the screener screen renders, point-in-time consistent with
+ * Load everything the feed renders, point-in-time consistent with
  * the latest signal run (all price/insider/news reads are bounded by the run
  * date, mirroring the engine's own no-lookahead discipline in context.ts).
  * Returns null when no run exists yet.
  */
-export async function loadScreener(
+export async function loadFeed(
 	db: Db,
-	selectedSlug: ScreenerScreenSlug = DEFAULT_SCREEN_SLUG
-): Promise<ScreenerPayload | null> {
+	selectedSlug: FeedViewSlug = DEFAULT_VIEW_SLUG
+): Promise<FeedPayload | null> {
 	const runDate = await latestRunDate(db);
 	if (runDate === null) return null;
 	const [run] = await db.select().from(signalRun).where(eq(signalRun.runDate, runDate));
 	if (!run) return null;
-	const selectedScreen = screenerScreenBySlug(selectedSlug);
+	const selectedView = feedViewBySlug(selectedSlug);
 
-	const screens = await db
-		.select({ id: screen.id, slug: screen.slug })
-		.from(screen)
-		.where(inArray(screen.slug, SCREENER_SCREENS.map((s) => s.slug)));
-	const screenIdBySlug = new Map(screens.map((s) => [s.slug, s.id]));
-	const selectedScreenId = screenIdBySlug.get(selectedSlug);
-	if (selectedScreenId === undefined) {
+	const definitions = await db
+		.select({ id: signalDefinition.id, slug: signalDefinition.slug })
+		.from(signalDefinition)
+		.where(inArray(signalDefinition.slug, FEED_VIEWS.map((s) => s.slug)));
+	const definitionIdBySlug = new Map(definitions.map((s) => [s.slug, s.id]));
+	const selectedDefinitionId = definitionIdBySlug.get(selectedSlug);
+	if (selectedDefinitionId === undefined) {
 		return {
 			runDate,
 			universeSize: run.universeSize,
-			screen: selectedScreen,
-			screens: [...SCREENER_SCREENS],
+			view: selectedView,
+			views: [...FEED_VIEWS],
 			cards: []
 		};
 	}
@@ -66,6 +79,8 @@ export async function loadScreener(
 			instrumentId: signal.instrumentId,
 			issuerId: instrument.issuerId,
 			rank: signal.rank,
+			score: signal.score,
+			rationale: signal.rationale,
 			isin: instrument.isin,
 			wkn: instrument.wkn,
 			name: issuer.name,
@@ -75,16 +90,30 @@ export async function loadScreener(
 		.innerJoin(instrument, eq(instrument.id, signal.instrumentId))
 		.innerJoin(issuer, eq(issuer.id, instrument.issuerId))
 		.where(
-			and(eq(signal.runId, run.id), eq(signal.screenId, selectedScreenId), eq(signal.passedGate, true))
+			and(eq(signal.runId, run.id), eq(signal.definitionId, selectedDefinitionId), eq(signal.passedGate, true))
 		)
 		.orderBy(signal.rank);
-	const passers: PasserRow[] = passerRows.map((r) => ({ ...r, rank: r.rank ?? 0 }));
+	const previousScores = await previousRunScores(db, runDate, selectedDefinitionId);
+	const passers: PasserRow[] = passerRows.map((r) => {
+		const severity = r.score === null ? null : Number(r.score);
+		return {
+			instrumentId: r.instrumentId,
+			issuerId: r.issuerId,
+			rank: r.rank ?? 0,
+			isin: r.isin,
+			wkn: r.wkn,
+			name: r.name,
+			sector: r.sector,
+			reasons: reasonsFor(selectedSlug, severity, r.rationale),
+			lifecycle: lifecycleFor(severity, previousScores?.get(r.instrumentId) ?? null, previousScores !== null)
+		};
+	});
 	if (passers.length === 0) {
 		return {
 			runDate,
 			universeSize: run.universeSize,
-			screen: selectedScreen,
-			screens: [...SCREENER_SCREENS],
+			view: selectedView,
+			views: [...FEED_VIEWS],
 			cards: []
 		};
 	}
@@ -93,8 +122,8 @@ export async function loadScreener(
 	const issuerIds = [...new Set(passers.map((p) => p.issuerId))];
 
 	const [valuation, marketCap, series, latest, insiders, news] = await Promise.all([
-		loadValuation(db, run.id, screenIdBySlug.get(RELATIVE_VALUE_SLUG), instrumentIds),
-		loadMarketCap(db, run.id, screenIdBySlug.get(INSIDER_CONVICTION_SLUG), instrumentIds),
+		loadValuation(db, run.id, definitionIdBySlug.get(RELATIVE_VALUE_SLUG), instrumentIds),
+		loadMarketCap(db, run.id, definitionIdBySlug.get(INSIDER_CONVICTION_SLUG), instrumentIds),
 		loadWeeklySeries(db, instrumentIds, runDate),
 		loadLatestPrices(db, instrumentIds, runDate),
 		loadInsiders(db, issuerIds, runDate),
@@ -104,26 +133,76 @@ export async function loadScreener(
 	return {
 		runDate,
 		universeSize: run.universeSize,
-		screen: selectedScreen,
-		screens: [...SCREENER_SCREENS],
+		view: selectedView,
+		views: [...FEED_VIEWS],
 		cards: assembleCards(passers, valuation, marketCap, series, latest, insiders, news)
 	};
+}
+
+/**
+ * Evidence badges: the feed carries the fired-signal list in its rationale;
+ * a facet view synthesizes a single reason from its own headline.
+ */
+function reasonsFor(slug: FeedViewSlug, severity: number | null, rationale: unknown): ReasonView[] {
+	if (slug === DEFAULT_VIEW_SLUG) return parseReasons(rationale);
+	const headline = parseHeadline(rationale);
+	if (headline === '' || severity === null) return [];
+	return [{ signal: slug, severity, headline }];
+}
+
+/** Meaningful severity move day-over-day; below this it's just "persisting". */
+const LIFECYCLE_DELTA = 0.05;
+
+function lifecycleFor(
+	severity: number | null,
+	previousSeverity: number | null,
+	hasPreviousRun: boolean
+): LifecycleState | null {
+	if (!hasPreviousRun) return null;
+	if (previousSeverity === null) return 'new';
+	if (severity === null) return 'persisting';
+	const delta = severity - previousSeverity;
+	if (delta >= LIFECYCLE_DELTA) return 'strengthening';
+	if (delta <= -LIFECYCLE_DELTA) return 'fading';
+	return 'persisting';
+}
+
+/** Fired-signal severities of the previous run's same view (null = no previous run). */
+async function previousRunScores(
+	db: Db,
+	runDate: string,
+	definitionId: number
+): Promise<Map<number, number | null> | null> {
+	const [previous] = await db
+		.select({ id: signalRun.id })
+		.from(signalRun)
+		.where(lt(signalRun.runDate, runDate))
+		.orderBy(desc(signalRun.runDate))
+		.limit(1);
+	if (!previous) return null;
+	const rows = await db
+		.select({ instrumentId: signal.instrumentId, score: signal.score })
+		.from(signal)
+		.where(
+			and(eq(signal.runId, previous.id), eq(signal.definitionId, definitionId), eq(signal.passedGate, true))
+		);
+	return new Map(rows.map((r) => [r.instrumentId, r.score === null ? null : Number(r.score)]));
 }
 
 async function loadValuation(
 	db: Db,
 	runId: number,
-	screenId: number | undefined,
+	definitionId: number | undefined,
 	instrumentIds: number[]
 ): Promise<Map<number, RelativeValueView>> {
-	if (screenId === undefined) return new Map();
+	if (definitionId === undefined) return new Map();
 	const rows = await db
 		.select({ instrumentId: signal.instrumentId, rationale: signal.rationale })
 		.from(signal)
 		.where(
 			and(
 				eq(signal.runId, runId),
-				eq(signal.screenId, screenId),
+				eq(signal.definitionId, definitionId),
 				inArray(signal.instrumentId, instrumentIds)
 			)
 		);
@@ -133,17 +212,17 @@ async function loadValuation(
 async function loadMarketCap(
 	db: Db,
 	runId: number,
-	screenId: number | undefined,
+	definitionId: number | undefined,
 	instrumentIds: number[]
 ): Promise<Map<number, number | null>> {
-	if (screenId === undefined) return new Map();
+	if (definitionId === undefined) return new Map();
 	const rows = await db
 		.select({ instrumentId: signal.instrumentId, rationale: signal.rationale })
 		.from(signal)
 		.where(
 			and(
 				eq(signal.runId, runId),
-				eq(signal.screenId, screenId),
+				eq(signal.definitionId, definitionId),
 				inArray(signal.instrumentId, instrumentIds)
 			)
 		);

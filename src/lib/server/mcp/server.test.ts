@@ -1,14 +1,14 @@
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { describe, expect, it } from 'vitest';
-import { summarizeRationale, type ScreenReport } from '../signals/report.js';
+import { summarizeRationale, type SignalReport } from '../signals/report.js';
 import { buildMcpServer, type McpDeps } from './server.js';
 
 const RUN_DATE = '2026-07-01';
 
-function makeReport(slug: string, top: number): ScreenReport {
+function makeReport(slug: string, top: number): SignalReport {
 	return {
-		screen: slug,
+		signal: slug,
 		runDate: RUN_DATE,
 		universeSize: 160,
 		passed: 2,
@@ -20,7 +20,7 @@ function makeReport(slug: string, top: number): ScreenReport {
 				name: 'Alpha AG',
 				score: 0.42,
 				percentile: 1,
-				rationale: { net_buy_value_eur: 250_000, buyer_count: 3 }
+				rationale: { buy_value_eur: 250_000, buyer_count: 3, headline: '3 insiders bought €250k in 30d' }
 			},
 			{
 				rank: 2,
@@ -29,7 +29,7 @@ function makeReport(slug: string, top: number): ScreenReport {
 				name: 'Beta SE',
 				score: 0.17,
 				percentile: 0.5,
-				rationale: { net_buy_value_eur: 90_000, buyer_count: 1 }
+				rationale: { buy_value_eur: 90_000, buyer_count: 1 }
 			}
 		].slice(0, top)
 	};
@@ -37,7 +37,7 @@ function makeReport(slug: string, top: number): ScreenReport {
 
 const happyDeps: McpDeps = {
 	latestRunDate: async () => RUN_DATE,
-	screenReport: async (slug, runDate, top) => (runDate === RUN_DATE ? makeReport(slug, top) : null)
+	signalReport: async (slug, runDate, top) => (runDate === RUN_DATE ? makeReport(slug, top) : null)
 };
 
 async function connect(deps: McpDeps): Promise<Client> {
@@ -53,14 +53,14 @@ describe('mcp server', () => {
 		expect(client.getServerVersion()).toMatchObject({ name: 'assets-signals' });
 	});
 
-	it('lists one read-only tool per screen with input and output schemas', async () => {
+	it('lists the feed tool plus one read-only facet tool per signal', async () => {
 		const client = await connect(happyDeps);
 		const { tools } = await client.listTools();
 
 		expect(tools.map((t) => t.name).sort()).toEqual([
-			'screen_insider_conviction',
-			'screen_relative_value',
-			'screen_value_insider_composite'
+			'signal_insider_conviction',
+			'signal_relative_value',
+			'surface_latest'
 		]);
 		for (const tool of tools) {
 			expect(tool.description).toBeTruthy();
@@ -74,16 +74,17 @@ describe('mcp server', () => {
 	it('returns a structured report with rationale summaries', async () => {
 		const client = await connect(happyDeps);
 		const result = await client.callTool({
-			name: 'screen_insider_conviction',
+			name: 'signal_insider_conviction',
 			arguments: { limit: 2 }
 		});
 
 		expect(result.isError).toBeFalsy();
-		const report = result.structuredContent as ScreenReport & { top: { summary: string }[] };
-		expect(report).toMatchObject({ screen: 'insider_conviction', runDate: RUN_DATE, passed: 2 });
+		const report = result.structuredContent as SignalReport & { top: { summary: string }[] };
+		expect(report).toMatchObject({ signal: 'insider_conviction', runDate: RUN_DATE, passed: 2 });
 		expect(report.top).toHaveLength(2);
-		expect(report.top[0].summary).toBe(
-			summarizeRationale('insider_conviction', { net_buy_value_eur: 250_000, buyer_count: 3 })
+		expect(report.top[0].summary).toBe('3 insiders bought €250k in 30d');
+		expect(report.top[1].summary).toBe(
+			summarizeRationale('insider_conviction', { buy_value_eur: 90_000, buyer_count: 1 })
 		);
 		const text = (result.content as { type: string; text: string }[])[0];
 		expect(text.type).toBe('text');
@@ -94,13 +95,13 @@ describe('mcp server', () => {
 		let seen: { runDate: string; top: number } | undefined;
 		const client = await connect({
 			latestRunDate: async () => RUN_DATE,
-			screenReport: async (slug, runDate, top) => {
+			signalReport: async (slug, runDate, top) => {
 				seen = { runDate, top };
 				return makeReport(slug, top);
 			}
 		});
 		await client.callTool({
-			name: 'screen_relative_value',
+			name: 'signal_relative_value',
 			arguments: { runDate: '2026-06-15', limit: 5 }
 		});
 		expect(seen).toEqual({ runDate: '2026-06-15', top: 5 });
@@ -108,7 +109,7 @@ describe('mcp server', () => {
 
 	it('reports a tool error when no signal runs exist', async () => {
 		const client = await connect({ ...happyDeps, latestRunDate: async () => null });
-		const result = await client.callTool({ name: 'screen_relative_value', arguments: {} });
+		const result = await client.callTool({ name: 'signal_relative_value', arguments: {} });
 		expect(result.isError).toBe(true);
 		expect(JSON.stringify(result.content)).toContain('No signal runs');
 	});
@@ -116,7 +117,7 @@ describe('mcp server', () => {
 	it('reports a tool error for an unknown run date', async () => {
 		const client = await connect(happyDeps);
 		const result = await client.callTool({
-			name: 'screen_relative_value',
+			name: 'signal_relative_value',
 			arguments: { runDate: '1999-01-01' }
 		});
 		expect(result.isError).toBe(true);
@@ -126,14 +127,14 @@ describe('mcp server', () => {
 	it('hides failure details behind a generic tool error', async () => {
 		const client = await connect({
 			...happyDeps,
-			screenReport: async () => {
+			signalReport: async () => {
 				throw new Error('connection refused at 10.0.0.5:5432');
 			}
 		});
-		const result = await client.callTool({ name: 'screen_value_insider_composite', arguments: {} });
+		const result = await client.callTool({ name: 'surface_latest', arguments: {} });
 		expect(result.isError).toBe(true);
 		const content = JSON.stringify(result.content);
-		expect(content).toContain('Screen query failed');
+		expect(content).toContain('Signal query failed');
 		expect(content).not.toContain('10.0.0.5');
 	});
 
@@ -141,21 +142,21 @@ describe('mcp server', () => {
 		let queried = false;
 		const client = await connect({
 			...happyDeps,
-			screenReport: async (slug, _runDate, top) => {
+			signalReport: async (slug, _runDate, top) => {
 				queried = true;
 				return makeReport(slug, top);
 			}
 		});
 
 		const overLimit = await client.callTool({
-			name: 'screen_insider_conviction',
+			name: 'signal_insider_conviction',
 			arguments: { limit: 999 }
 		});
 		expect(overLimit.isError).toBe(true);
 		expect(JSON.stringify(overLimit.content)).toContain('less than or equal to 50');
 
 		const badDate = await client.callTool({
-			name: 'screen_insider_conviction',
+			name: 'signal_insider_conviction',
 			arguments: { runDate: 'yesterday' }
 		});
 		expect(badDate.isError).toBe(true);

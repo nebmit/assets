@@ -1,4 +1,5 @@
 import { signalsJob } from '../signals/engine.js';
+import { performanceJob } from '../signals/performance.js';
 import { insiderJob } from '../sources/bafin/insider.js';
 import { newsJob } from '../sources/boerseFrankfurt/news.js';
 import { pricesJob } from '../sources/boerseFrankfurt/prices.js';
@@ -19,7 +20,9 @@ export const allJobs: Job[] = [
 	insiderJob,
 	// news last among ingesters: its ~7-min rate-limited walk feeds no signal
 	newsJob,
-	signalsJob
+	signalsJob,
+	// measure forward returns of past surfaced signals once horizons elapse
+	performanceJob
 ];
 
 export function findJob(name: string): Job | undefined {

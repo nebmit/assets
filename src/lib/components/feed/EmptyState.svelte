@@ -15,7 +15,7 @@
 	const content = $derived(
 		{
 			'no-runs': {
-				headline: 'No screening run yet',
+				headline: 'No signal run yet',
 				hint: 'Run the pipeline: npm run worker -- run'
 			},
 			'db-error': {
@@ -23,8 +23,8 @@
 				hint: 'Check DATABASE_URL and try again'
 			},
 			'no-passers': {
-				headline: 'Nothing passed the composite gate',
-				hint: `Run of ${runDate} · 0 names surfaced`
+				headline: 'Nothing surfaced today',
+				hint: `Run of ${runDate} · no signal cleared its materiality floor — a quiet day is a valid answer`
 			},
 			'no-matches': {
 				headline: 'No matches',

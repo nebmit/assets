@@ -1,22 +1,31 @@
 import { eq } from 'drizzle-orm';
 import type { Db } from '../db/index.js';
-import { screen, signal, signalRun } from '../db/schema.js';
+import { signal, signalDefinition, signalRun } from '../db/schema.js';
 import type { Job, JobStats } from '../pipeline/types.js';
 import { buildContext } from './context.js';
-import { insiderConvictionScreen } from './screens/insiderConviction.js';
-import { relativeValueScreen } from './screens/relativeValue.js';
+import { insiderConvictionSignal } from './definitions/insiderConviction.js';
+import { relativeValueSignal } from './definitions/relativeValue.js';
 import { percentileRanks } from './stats.js';
-import type { RankedResult, ScreenDefinition, UniverseContext } from './types.js';
+import type { RankedResult, SignalDefinition, UniverseContext } from './types.js';
 
-export const COMPOSITE_SLUG = 'value_insider_composite';
-export const baseScreens: ScreenDefinition[] = [insiderConvictionScreen, relativeValueScreen];
+export const SURFACED_SLUG = 'surfaced';
+export const signalDefinitions: SignalDefinition[] = [insiderConvictionSignal, relativeValueSignal];
 
-export const compositeMeta = {
-	slug: COMPOSITE_SLUG,
-	name: 'Value × Insider Composite',
+/**
+ * The headline feed: the *union* of fired signals, not an intersection of
+ * gates. Any single signal clearing its absolute materiality floor surfaces
+ * the asset; additional fired signals are confirmations that raise the
+ * combined severity (noisy-or), never a requirement. Empty days are empty.
+ */
+export const surfacedMeta = {
+	slug: SURFACED_SLUG,
+	name: 'Surfaced',
 	version: 1,
-	// equal weights until backtest history exists to tune them
-	params: { components: baseScreens.map((s) => s.slug), weights: 'equal' }
+	params: {
+		components: signalDefinitions.map((s) => s.slug),
+		combination: 'noisy-or',
+		severity_scale: '1 − Π(1 − component severity); components are absolute [0,1] severities'
+	}
 };
 
 /** Percentile-rank gate-passers within the run; rank 1 = strongest. */
@@ -38,10 +47,10 @@ export function rankResults(
 	}));
 }
 
-/** Evaluate all screens over a prebuilt context (pure given the context). */
-export function evaluateScreens(ctx: UniverseContext): Map<string, RankedResult[]> {
+/** Evaluate all signals over a prebuilt context (pure given the context). */
+export function evaluateSignals(ctx: UniverseContext): Map<string, RankedResult[]> {
 	const bySlug = new Map<string, RankedResult[]>();
-	for (const def of baseScreens) {
+	for (const def of signalDefinitions) {
 		bySlug.set(
 			def.slug,
 			rankResults(
@@ -53,60 +62,71 @@ export function evaluateScreens(ctx: UniverseContext): Map<string, RankedResult[
 		);
 	}
 
-	const componentResults = baseScreens.map((def) => {
+	const componentResults = signalDefinitions.map((def) => {
 		const byInstrument = new Map<number, RankedResult>();
 		for (const result of bySlug.get(def.slug) ?? []) byInstrument.set(result.instrumentId, result);
 		return { slug: def.slug, byInstrument };
 	});
-	const composite = ctx.instruments.map((instrument) => {
-		const components = componentResults.map(({ slug, byInstrument }) => {
-			const result = byInstrument.get(instrument.instrumentId);
-			return { slug, percentile: result?.percentile ?? null };
-		});
+	const surfaced = ctx.instruments.map((instrument) => {
+		const fired = componentResults
+			.map(({ slug, byInstrument }) => ({ slug, result: byInstrument.get(instrument.instrumentId) }))
+			.filter(
+				(c): c is { slug: string; result: RankedResult } =>
+					c.result !== undefined && c.result.passedGate && c.result.score !== null
+			);
 		const rationale: Record<string, unknown> = Object.fromEntries(
-			components.map((c) => [`${c.slug}_percentile`, c.percentile])
+			componentResults.map(({ slug, byInstrument }) => [
+				`${slug}_severity`,
+				byInstrument.get(instrument.instrumentId)?.score ?? null
+			])
 		);
-		const passedGate = components.every((c) => c.percentile !== null);
-		return {
-			instrumentId: instrument.instrumentId,
-			passedGate,
-			score: passedGate
-				? components.reduce((sum, c) => sum + (c.percentile as number), 0) / components.length
-				: null,
-			rationale
-		};
+		if (fired.length === 0) {
+			return { instrumentId: instrument.instrumentId, passedGate: false, score: null, rationale };
+		}
+		// noisy-or: confirmations add with diminishing returns, never gate
+		const score = 1 - fired.reduce((left, c) => left * (1 - (c.result.score as number)), 1);
+		const eventDates = fired
+			.map((c) => c.result.eventDate ?? null)
+			.filter((d): d is string => d !== null);
+		rationale.reasons = fired.map((c) => ({
+			signal: c.slug,
+			severity: c.result.score,
+			headline: typeof c.result.rationale.headline === 'string' ? c.result.rationale.headline : c.slug
+		}));
+		rationale.event_date = eventDates.length > 0 ? eventDates.sort().at(-1) : null;
+		return { instrumentId: instrument.instrumentId, passedGate: true, score, rationale };
 	});
-	bySlug.set(COMPOSITE_SLUG, rankResults(composite));
+	bySlug.set(SURFACED_SLUG, rankResults(surfaced));
 	return bySlug;
 }
 
-async function screenIds(db: Db): Promise<Map<string, number>> {
-	const defs = [...baseScreens, compositeMeta];
+async function definitionIds(db: Db): Promise<Map<string, number>> {
+	const defs = [...signalDefinitions, surfacedMeta];
 	const ids = new Map<string, number>();
 	for (const def of defs) {
 		const [row] = await db
-			.insert(screen)
+			.insert(signalDefinition)
 			.values({ slug: def.slug, name: def.name, version: def.version, params: def.params })
 			.onConflictDoUpdate({
-				target: screen.slug,
+				target: signalDefinition.slug,
 				set: { name: def.name, version: def.version, params: def.params }
 			})
-			.returning({ id: screen.id });
+			.returning({ id: signalDefinition.id });
 		ids.set(def.slug, row.id);
 	}
 	return ids;
 }
 
 /**
- * Run the engine for a date and persist one signal row per screen and
- * universe instrument (passers and non-passers, so the surfacing layer can
+ * Run the engine for a date and persist one signal row per definition and
+ * universe instrument (fired and not-fired, so the surfacing layer can
  * explain both). Re-running a date replaces its signal_run atomically.
  */
 export async function runSignals(db: Db, runDate: string): Promise<JobStats> {
 	const ctx = await buildContext(db, runDate);
 	if (ctx.instruments.length === 0) throw new Error(`universe is empty on ${runDate} — run ingestion first`);
-	const results = evaluateScreens(ctx);
-	const ids = await screenIds(db);
+	const results = evaluateSignals(ctx);
+	const ids = await definitionIds(db);
 
 	// signals cascade-delete with the run; re-runs of the same date are atomic
 	await db.transaction(async (tx) => {
@@ -117,11 +137,11 @@ export async function runSignals(db: Db, runDate: string): Promise<JobStats> {
 			.returning({ id: signalRun.id });
 
 		for (const [slug, ranked] of results) {
-			const screenId = ids.get(slug) as number;
+			const definitionId = ids.get(slug) as number;
 			await tx.insert(signal).values(
 				ranked.map((r) => ({
 					runId: run.id,
-					screenId,
+					definitionId,
 					instrumentId: r.instrumentId,
 					passedGate: r.passedGate,
 					score: r.score?.toString(),

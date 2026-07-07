@@ -1,4 +1,4 @@
-import type { PricePoint } from './screener/types.js';
+import type { PricePoint } from './feed/types.js';
 
 /**
  * Pure sparkline geometry + range math, shared by the Sparkline component and

@@ -8,7 +8,7 @@
 		type ChartRange
 	} from '$lib/chart.js';
 	import { formatDayMonth, formatPrice } from '$lib/format.js';
-	import type { PricePoint } from '$lib/screener/types.js';
+	import type { PricePoint } from '$lib/feed/types.js';
 	import DeltaBadge from '../ds/DeltaBadge.svelte';
 	import Sparkline from '../ds/Sparkline.svelte';
 	import Tabs from '../ds/Tabs.svelte';

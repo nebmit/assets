@@ -7,7 +7,7 @@ import { guardMcpRequest, jsonRpcError } from '$lib/server/mcp/guards.js';
 import { RateLimiter } from '$lib/server/mcp/rateLimit.js';
 import { buildMcpServer } from '$lib/server/mcp/server.js';
 import { SessionStore } from '$lib/server/mcp/sessions.js';
-import { latestRunDate, screenReport } from '$lib/server/signals/report.js';
+import { latestRunDate, signalReport } from '$lib/server/signals/report.js';
 import type { RequestHandler } from './$types.js';
 
 /**
@@ -58,7 +58,7 @@ export const POST: RequestHandler = async ({ request, getClientAddress }) => {
 	const db = getDb();
 	const server = buildMcpServer({
 		latestRunDate: () => latestRunDate(db),
-		screenReport: (slug, runDate, top) => screenReport(db, slug, runDate, top)
+		signalReport: (slug, runDate, top) => signalReport(db, slug, runDate, top)
 	});
 	const userUuid = auth.user.uuid;
 	const newTransport = new WebStandardStreamableHTTPServerTransport({

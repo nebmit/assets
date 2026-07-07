@@ -15,6 +15,13 @@
       "when": 1782976266354,
       "tag": "0001_pale_the_renegades",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1783328910729,
+      "tag": "0002_signal_performance",
+      "breakpoints": true
     }
   ]
 }

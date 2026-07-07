@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { nearestIndex, rangeChangePct, sliceByRange, sparkGeometry } from './chart.js';
-import type { PricePoint } from './screener/types.js';
+import type { PricePoint } from './feed/types.js';
 
 describe('sparkGeometry', () => {
 	it('maps min/max onto padded vertical extremes', () => {

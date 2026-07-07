@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { formatDayMonth } from '$lib/format.js';
-	import type { NewsRowView } from '$lib/screener/types.js';
+	import type { NewsRowView } from '$lib/feed/types.js';
 	import Badge from '../ds/Badge.svelte';
 	import Link from '../ds/Link.svelte';
 

@@ -176,8 +176,13 @@ export const newsItem = pgTable(
 	]
 );
 
-/** Registry row per curated screen; definitions live in code (single source of truth). */
-export const screen = pgTable('screen', {
+/**
+ * Registry row per curated signal definition; the definitions themselves
+ * live in code (single source of truth). The physical table keeps its
+ * legacy name `screen` — renaming a live table isn't worth the migration
+ * risk, so only the code-level vocabulary changed.
+ */
+export const signalDefinition = pgTable('screen', {
 	id: serial('id').primaryKey(),
 	slug: text('slug').notNull().unique(),
 	name: text('name').notNull(),
@@ -201,9 +206,10 @@ export const signal = pgTable(
 		runId: integer('run_id')
 			.notNull()
 			.references(() => signalRun.id, { onDelete: 'cascade' }),
-		screenId: integer('screen_id')
+		// physical column keeps its legacy name (see signalDefinition above)
+		definitionId: integer('screen_id')
 			.notNull()
-			.references(() => screen.id),
+			.references(() => signalDefinition.id),
 		instrumentId: integer('instrument_id')
 			.notNull()
 			.references(() => instrument.id),
@@ -213,7 +219,32 @@ export const signal = pgTable(
 		rank: integer('rank'),
 		rationale: jsonb('rationale').notNull()
 	},
-	(t) => [uniqueIndex('signal_natural_key_idx').on(t.runId, t.screenId, t.instrumentId)]
+	(t) => [uniqueIndex('signal_natural_key_idx').on(t.runId, t.definitionId, t.instrumentId)]
+);
+
+/**
+ * Measured forward returns per surfaced signal — the feedback loop that
+ * makes "interesting to acquire" falsifiable. One row per (signal, horizon),
+ * filled by the `performance` job once the horizon has elapsed. The
+ * benchmark is the equal-weight mean return over the run's whole universe.
+ */
+export const signalPerformance = pgTable(
+	'signal_performance',
+	{
+		id: serial('id').primaryKey(),
+		signalId: integer('signal_id')
+			.notNull()
+			.references(() => signal.id, { onDelete: 'cascade' }),
+		horizonDays: integer('horizon_days').notNull(),
+		baseDate: date('base_date').notNull(),
+		baseClose: numeric('base_close').notNull(),
+		fwdDate: date('fwd_date').notNull(),
+		fwdClose: numeric('fwd_close').notNull(),
+		fwdReturn: numeric('fwd_return').notNull(),
+		universeFwdReturn: numeric('universe_fwd_return'),
+		computedAt: timestamp('computed_at', { withTimezone: true }).notNull().defaultNow()
+	},
+	(t) => [uniqueIndex('signal_performance_natural_key_idx').on(t.signalId, t.horizonDays)]
 );
 
 /** Bookkeeping + incremental watermarks per ingestion job execution. */

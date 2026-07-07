@@ -2,7 +2,7 @@ import { z } from 'zod';
 
 /**
  * Tolerant readers for signal rationale JSONB. Rationale shapes are owned by
- * the screen definitions, but rows may come from older engine versions or be
+ * the signal definitions, but rows may come from older engine versions or be
  * partially populated (e.g. peer fields only exist for relative-value gate
  * passers) — so every field degrades to null instead of throwing.
  */
@@ -42,4 +42,34 @@ const insiderConvictionRationale = z.object({
 export function parseMarketCap(raw: unknown): number | null {
 	const parsed = insiderConvictionRationale.safeParse(raw ?? {});
 	return parsed.success ? parsed.data.market_cap : null;
+}
+
+const reasonRow = z.object({
+	signal: z.string(),
+	severity: z.number().finite(),
+	headline: z.string()
+});
+
+const surfacedRationale = z.object({
+	reasons: z.array(reasonRow).catch([]).default([])
+});
+
+export interface ReasonRow {
+	signal: string;
+	severity: number;
+	headline: string;
+}
+
+/** Fired-signal evidence list from a surfaced-feed rationale. */
+export function parseReasons(raw: unknown): ReasonRow[] {
+	const parsed = surfacedRationale.safeParse(raw ?? {});
+	return parsed.success ? parsed.data.reasons : [];
+}
+
+const headlineRationale = z.object({ headline: z.string().catch('').default('') });
+
+/** Evidence one-liner from a component-signal rationale ('' when absent). */
+export function parseHeadline(raw: unknown): string {
+	const parsed = headlineRationale.safeParse(raw ?? {});
+	return parsed.success ? parsed.data.headline : '';
 }

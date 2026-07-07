@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { assembleCards, type PasserRow } from './assemble.js';
-import { parseMarketCap, parseRelativeValueRationale } from './rationale.js';
+import { parseHeadline, parseMarketCap, parseReasons, parseRelativeValueRationale } from './rationale.js';
 
 const passer: PasserRow = {
 	instrumentId: 1,
@@ -9,7 +9,9 @@ const passer: PasserRow = {
 	isin: 'DE0007164600',
 	wkn: '716460',
 	name: 'SAP SE',
-	sector: 'Software'
+	sector: 'Software',
+	reasons: [{ signal: 'insider_conviction', severity: 0.4, headline: '2 insiders bought €1.2M in 30d' }],
+	lifecycle: 'new'
 };
 
 describe('parseRelativeValueRationale', () => {
@@ -50,9 +52,28 @@ describe('parseRelativeValueRationale', () => {
 
 describe('parseMarketCap', () => {
 	it('reads market_cap and tolerates junk', () => {
-		expect(parseMarketCap({ market_cap: 2.9e11, net_buy_value_eur: 5 })).toBe(2.9e11);
+		expect(parseMarketCap({ market_cap: 2.9e11, buy_value_eur: 5 })).toBe(2.9e11);
 		expect(parseMarketCap({ market_cap: 'n/a' })).toBeNull();
 		expect(parseMarketCap(undefined)).toBeNull();
+	});
+});
+
+describe('parseReasons / parseHeadline', () => {
+	it('reads the surfaced-feed reasons list', () => {
+		expect(
+			parseReasons({
+				reasons: [{ signal: 'relative_value', severity: 0.3, headline: 'P/E 6.1, 40% below Financials median' }],
+				event_date: null
+			})
+		).toEqual([{ signal: 'relative_value', severity: 0.3, headline: 'P/E 6.1, 40% below Financials median' }]);
+	});
+
+	it('degrades malformed reasons and headlines instead of throwing', () => {
+		expect(parseReasons({ reasons: 'garbage' })).toEqual([]);
+		expect(parseReasons(null)).toEqual([]);
+		expect(parseHeadline({ headline: '1 insider bought €400k in 30d' })).toBe('1 insider bought €400k in 30d');
+		expect(parseHeadline({ headline: 42 })).toBe('');
+		expect(parseHeadline(undefined)).toBe('');
 	});
 });
 
@@ -68,6 +89,8 @@ describe('assembleCards', () => {
 			new Map([[10, [{ headline: 'Raised guidance', newsType: 'Ad-hoc', publishedAt: '2026-06-27T15:00:00.000Z' }]]])
 		);
 		expect(card.rank).toBe(1);
+		expect(card.reasons).toEqual(passer.reasons);
+		expect(card.lifecycle).toBe('new');
 		expect(card.price).toBe(245.8);
 		expect(card.peDeltaPct).toBeCloseTo(48.24, 2);
 		expect(card.marketCap).toBe(2.9e11);

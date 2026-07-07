@@ -1,21 +1,21 @@
 import { getDb } from '$lib/server/db/index.js';
-import { loadScreener } from '$lib/server/screener/queries.js';
-import { DEFAULT_SCREEN_SLUG, isScreenerScreenSlug } from '$lib/screener/screens.js';
+import { loadFeed } from '$lib/server/feed/queries.js';
+import { DEFAULT_VIEW_SLUG, isFeedViewSlug } from '$lib/feed/views.js';
 import type { PageServerLoad } from './$types.js';
 
 /**
- * SSR payload for the screener. `payload === null` with `dbError === false`
+ * SSR payload for the surfaced feed. `payload === null` with `dbError === false`
  * means no signal run exists yet (fresh install); a caught failure renders
  * the error empty-state instead of a 500.
  */
 export const load: PageServerLoad = async ({ url }) => {
 	try {
-		const screenParam = url.searchParams.get('screen');
-		const selectedScreen = isScreenerScreenSlug(screenParam) ? screenParam : DEFAULT_SCREEN_SLUG;
-		const payload = await loadScreener(getDb(), selectedScreen);
+		const viewParam = url.searchParams.get('view');
+		const selectedView = isFeedViewSlug(viewParam) ? viewParam : DEFAULT_VIEW_SLUG;
+		const payload = await loadFeed(getDb(), selectedView);
 		return { payload, dbError: false };
 	} catch (err) {
-		console.error('screener load failed', err);
+		console.error('feed load failed', err);
 		return { payload: null, dbError: true };
 	}
 };

@@ -1,8 +1,12 @@
 /**
- * Dev-only demo seed for the screener UI. DESTRUCTIVE: drops and recreates
- * the public schema of DATABASE_URL, inserts a realistic 8-name universe
+ * Dev-only demo seed for the feed UI. DESTRUCTIVE: drops and recreates
+ * the public schema of DATABASE_URL, inserts a realistic 9-name universe
  * (prices, fundamentals, insider dealings, news), then runs the real signal
- * engine so signal rows come from production code, not hand-faked values.
+ * engine for two consecutive dates (so lifecycle badges render) — signal
+ * rows come from production code, not hand-faked values. The cast is chosen
+ * to exercise the feed semantics: names surfacing on insider evidence alone,
+ * on value alone, on both (noisy-or), and a token courtesy buy that stays
+ * below the materiality floor and must NOT surface.
  *
  *   docker compose up -d postgres && npm run seed:demo && npm run dev
  */
@@ -45,6 +49,8 @@ interface DemoCompany {
 	price: number;
 	eps: number;
 	marketCap: number;
+	/** Dividend per share (EUR); feeds the value signal's yield bonus. */
+	dividend?: number;
 	drift: number;
 	seed: number;
 	insiders: DemoInsider[];
@@ -53,8 +59,9 @@ interface DemoCompany {
 
 const COMPANIES: DemoCompany[] = [
 	{
+		// Insider cluster (2 buyers in window) at a rich P/E: insider-only surface.
 		name: 'SAP SE', sector: 'Software', isin: 'DE0007164600', wkn: '716460', ticker: 'SAP',
-		price: 245.8, eps: 5.84, marketCap: 2.87e11, drift: 0.0009, seed: 7,
+		price: 245.8, eps: 5.84, marketCap: 2.87e11, dividend: 2.2, drift: 0.0009, seed: 7,
 		insiders: [
 			{ daysAgo: 19, who: 'Julia White', role: 'supervisory_board', side: 'buy', amount: 1_240_000 },
 			{ daysAgo: 27, who: 'C. Klein', role: 'executive_board', side: 'buy', amount: 2_800_000 },
@@ -93,8 +100,9 @@ const COMPANIES: DemoCompany[] = [
 		]
 	},
 	{
+		// Material exec buy AND a deep discount with a fat yield: noisy-or showcase.
 		name: 'Allianz SE', sector: 'Insurance', isin: 'DE0008404005', wkn: '840400', ticker: 'ALV',
-		price: 298.6, eps: 24.08, marketCap: 1.16e11, drift: 0.0004, seed: 46,
+		price: 298.6, eps: 24.08, marketCap: 1.16e11, dividend: 13.8, drift: 0.0004, seed: 46,
 		insiders: [
 			{ daysAgo: 9, who: 'C. Bahr', role: 'executive_board', side: 'buy', amount: 1_900_000 },
 			{ daysAgo: 53, who: 'O. Bäte', role: 'executive_board', side: 'sell', amount: 1_600_000 },
@@ -107,7 +115,7 @@ const COMPANIES: DemoCompany[] = [
 	},
 	{
 		name: 'Deutsche Telekom AG', sector: 'Telecom', isin: 'DE0005557508', wkn: '555750', ticker: 'DTE',
-		price: 28.94, eps: 1.79, marketCap: 1.41e11, drift: 0.0007, seed: 59,
+		price: 28.94, eps: 1.79, marketCap: 1.41e11, dividend: 0.77, drift: 0.0007, seed: 59,
 		insiders: [
 			{ daysAgo: 25, who: 'T. Höttges', role: 'executive_board', side: 'buy', amount: 540_000 },
 			{ daysAgo: 32, who: 'C. Illek', role: 'executive_board', side: 'buy', amount: 380_000 },
@@ -132,20 +140,29 @@ const COMPANIES: DemoCompany[] = [
 		]
 	},
 	{
-		// No insider activity → fails the insider gate → composite non-passer.
+		// No insider activity — surfaces via the value signal alone (union, not intersection).
 		name: 'BASF SE', sector: 'Chemicals', isin: 'DE000BASF111', wkn: 'BASF11', ticker: 'BAS',
-		price: 44.6, eps: 3.1, marketCap: 4.0e10, drift: 0.0002, seed: 85,
+		price: 44.6, eps: 3.1, marketCap: 4.0e10, dividend: 2.25, drift: 0.0002, seed: 85,
 		insiders: [],
 		news: [{ daysAgo: 15, type: 'Corporate', headline: 'Verbund site efficiency program on track' }]
 	},
 	{
-		// Negative EPS → fails the relative-value gate → composite non-passer.
+		// Negative EPS (no P/E) — surfaces via the insider signal alone.
 		name: 'Zalando SE', sector: 'E-commerce', isin: 'DE000ZAL1111', wkn: 'ZAL111', ticker: 'ZAL',
 		price: 24.1, eps: -0.4, marketCap: 6.2e9, drift: -0.0009, seed: 98,
 		insiders: [
 			{ daysAgo: 11, who: 'R. Gentz', role: 'executive_board', side: 'buy', amount: 450_000 }
 		],
 		news: [{ daysAgo: 9, type: 'Ad-hoc', headline: 'GMV growth guidance narrowed' }]
+	},
+	{
+		// Token €6k courtesy buy: below the materiality floor, must NOT surface.
+		name: 'Nemetschek SE', sector: 'Software', isin: 'DE0006452907', wkn: '645290', ticker: 'NEM',
+		price: 92.0, eps: 2.1, marketCap: 1.06e10, drift: 0.0005, seed: 111,
+		insiders: [
+			{ daysAgo: 8, who: 'L. Kaltner', role: 'supervisory_board', side: 'buy', amount: 6_000 }
+		],
+		news: []
 	}
 ];
 
@@ -239,7 +256,20 @@ async function main(): Promise<void> {
 				periodEnd: isoDaysAgo(30),
 				publishedDate: isoDaysAgo(30),
 				source: 'boerse_frankfurt'
-			}
+			},
+			...(company.dividend === undefined
+				? []
+				: [
+						{
+							issuerId: iss.id,
+							metric: 'dividend_per_share',
+							value: String(company.dividend),
+							currency: 'EUR',
+							periodEnd: isoDaysAgo(120),
+							publishedDate: isoDaysAgo(100),
+							source: 'boerse_frankfurt' as const
+						}
+					])
 		]);
 
 		if (company.insiders.length > 0) {
@@ -279,6 +309,8 @@ async function main(): Promise<void> {
 		}
 	}
 
+	// two consecutive runs so day-over-day lifecycle states render in the UI
+	await runSignals(db, isoDaysAgo(1));
 	const stats = await runSignals(db, RUN_DATE);
 	console.log(`seed-demo: seeded ${COMPANIES.length} companies, signals run:`, stats);
 	await closeDb();
