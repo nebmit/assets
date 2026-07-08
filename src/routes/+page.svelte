@@ -218,6 +218,31 @@
 	{/if}
 {/snippet}
 
+{#snippet mobileViewNav()}
+	{#if payload !== null && payload !== undefined}
+		<nav
+			class="flex w-full gap-[2px] rounded-md bg-surface-inset p-[2px]"
+			aria-label="View"
+		>
+			{#each payload.views as view (view.slug)}
+				{@const active = view.slug === viewSlug}
+				<a
+					href={viewHref(view.slug)}
+					aria-current={active ? "page" : undefined}
+					class="flex min-h-[32px] min-w-0 flex-1 items-center justify-center rounded-sm px-[6px] py-[5px] text-center font-sans text-xs leading-tight font-medium no-underline transition-colors duration-[120ms]"
+					class:bg-surface-card={active}
+					class:shadow-xs={active}
+					class:text-text-primary={active}
+					class:text-text-tertiary={!active}
+					style:transition-timing-function="var(--ease-standard)"
+				>
+					{view.name}
+				</a>
+			{/each}
+		</nav>
+	{/if}
+{/snippet}
+
 {#snippet asOf()}
 	{#if asOfDate}
 		<span class="font-mono text-2xs text-text-muted tabular-nums"
@@ -507,10 +532,48 @@
 	<EmptyState kind="no-runs" />
 {:else}
 	<div
-		class="px-[18px] pt-5 pb-8 sm:px-[22px] sm:pt-6 sm:pb-10 lg:px-8 lg:pt-8 lg:pb-12 xl:px-10 xl:pt-10 xl:pb-14 2xl:px-12"
+		class="px-[18px] pt-[14px] pb-8 sm:px-[22px] sm:pt-6 sm:pb-10 lg:px-8 lg:pt-8 lg:pb-12 xl:px-10 xl:pt-10 xl:pb-14 2xl:px-12"
 	>
 		<div
-			class="mb-[14px] flex flex-wrap items-center justify-between gap-x-4 gap-y-2"
+			class="mb-[14px] sm:hidden"
+		>
+			<div class="flex items-start justify-between gap-3">
+				<div class="min-w-0">
+					<span class="block font-sans text-xs text-text-muted">From</span>
+					<h2 class="m-0 text-lg font-medium tracking-tight">
+						DAX / MDAX / SDAX
+					</h2>
+				</div>
+				<span
+					class="shrink-0 rounded-md border border-border-subtle bg-surface-card px-[8px] py-[5px] font-mono text-2xs leading-none text-text-tertiary tabular-nums shadow-xs"
+				>
+					{#if searchTerm !== ""}
+						<span class="font-semibold text-text-secondary"
+							>{filtered.length}</span
+						> shown
+						<span class="text-text-muted">·</span>
+					{/if}
+					<span class="font-semibold text-text-secondary"
+						>{visibleCards.length}</span
+					>
+					/
+					<span class="font-semibold text-text-secondary"
+						>{payload.universeSize ?? "—"}</span
+					> surfaced
+				</span>
+			</div>
+			{#if asOfDate}
+				<div
+					class="mt-[7px] font-mono text-2xs text-text-muted tabular-nums"
+				>
+					{formatAsOf(asOfDate)}
+				</div>
+			{/if}
+			<div class="mt-[10px]">{@render mobileViewNav()}</div>
+		</div>
+
+		<div
+			class="mb-[14px] hidden flex-wrap items-center justify-between gap-x-4 gap-y-2 sm:flex"
 		>
 			<div class="flex flex-wrap items-center gap-x-[10px] gap-y-2">
 				<h2 class="m-0 text-xl font-medium tracking-tight">
