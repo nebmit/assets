@@ -1,5 +1,8 @@
 <script lang="ts">
-	import type { Snippet } from 'svelte';
+	import { onMount, type Snippet } from 'svelte';
+
+	const VIEWPORT_MARGIN = 16;
+	const TOOLTIP_GAP = 6;
 
 	interface Props {
 		term: string;
@@ -15,6 +18,80 @@
 	const ariaLabel = $derived(
 		`${term}: ${definition}${clarification === undefined ? '' : `. ${clarification}`}`
 	);
+
+	let anchorEl: HTMLSpanElement;
+	let tooltipEl: HTMLSpanElement;
+	let hovered = $state(false);
+	let focused = $state(false);
+	let tooltipStyle = $state('');
+	let tooltipSide = $state<'top' | 'bottom'>('bottom');
+	let frame = 0;
+
+	const tooltipOpen = $derived(hovered || focused);
+
+	function clamp(value: number, min: number, max: number): number {
+		return Math.min(Math.max(value, min), max);
+	}
+
+	function positionTooltip(): void {
+		if (anchorEl === undefined || tooltipEl === undefined) return;
+
+		const anchor = anchorEl.getBoundingClientRect();
+		const tooltip = tooltipEl.getBoundingClientRect();
+		const viewportWidth = window.innerWidth;
+		const viewportHeight = window.innerHeight;
+		const maxLeft = Math.max(VIEWPORT_MARGIN, viewportWidth - tooltip.width - VIEWPORT_MARGIN);
+
+		const preferredLeft =
+			align === 'left'
+				? anchor.left
+				: align === 'right'
+					? anchor.right - tooltip.width
+					: anchor.left + anchor.width / 2 - tooltip.width / 2;
+		const left = clamp(preferredLeft, VIEWPORT_MARGIN, maxLeft);
+
+		const belowTop = anchor.bottom + TOOLTIP_GAP;
+		const aboveTop = anchor.top - tooltip.height - TOOLTIP_GAP;
+		const fitsBelow = belowTop + tooltip.height <= viewportHeight - VIEWPORT_MARGIN;
+		const fitsAbove = aboveTop >= VIEWPORT_MARGIN;
+		const top =
+			!fitsBelow && fitsAbove
+				? aboveTop
+				: clamp(
+						belowTop,
+						VIEWPORT_MARGIN,
+						Math.max(VIEWPORT_MARGIN, viewportHeight - tooltip.height - VIEWPORT_MARGIN)
+					);
+
+		tooltipSide = !fitsBelow && fitsAbove ? 'top' : 'bottom';
+		tooltipStyle = `--term-help-tooltip-left: ${left}px; --term-help-tooltip-top: ${top}px;`;
+	}
+
+	function queuePositionTooltip(): void {
+		if (typeof window === 'undefined') return;
+		cancelAnimationFrame(frame);
+		frame = requestAnimationFrame(positionTooltip);
+	}
+
+	function showTooltip(): void {
+		positionTooltip();
+		queuePositionTooltip();
+	}
+
+	onMount(() => {
+		const reposition = () => {
+			if (tooltipOpen) queuePositionTooltip();
+		};
+
+		window.addEventListener('resize', reposition);
+		window.addEventListener('scroll', reposition, true);
+
+		return () => {
+			cancelAnimationFrame(frame);
+			window.removeEventListener('resize', reposition);
+			window.removeEventListener('scroll', reposition, true);
+		};
+	});
 </script>
 
 <span class="term-help">
@@ -23,7 +100,24 @@
 			{@render children()}
 		</span>
 	{/if}
-	<span class="term-help__anchor">
+	<span
+		class="term-help__anchor"
+		bind:this={anchorEl}
+		onpointerenter={() => {
+			hovered = true;
+			showTooltip();
+		}}
+		onpointerleave={() => {
+			hovered = false;
+		}}
+		onfocusin={() => {
+			focused = true;
+			showTooltip();
+		}}
+		onfocusout={() => {
+			focused = false;
+		}}
+	>
 		<button
 			type="button"
 			class="term-help__trigger"
@@ -44,7 +138,16 @@
 				<path d="M12 17h.01" />
 			</svg>
 		</button>
-		<span id={tooltipId} role="tooltip" class="term-help__tooltip" data-align={align}>
+		<span
+			id={tooltipId}
+			role="tooltip"
+			class="term-help__tooltip"
+			data-align={align}
+			data-open={tooltipOpen}
+			data-side={tooltipSide}
+			style={tooltipStyle}
+			bind:this={tooltipEl}
+		>
 			<span class="term-help__definition">{definition}</span>
 			{#if clarification !== undefined}
 				<span class="term-help__clarification">{clarification}</span>
@@ -108,9 +211,10 @@
 	}
 
 	.term-help__tooltip {
-		position: absolute;
-		top: calc(100% + 6px);
-		z-index: 40;
+		position: fixed;
+		top: var(--term-help-tooltip-top, 0);
+		left: var(--term-help-tooltip-left, 0);
+		z-index: 80;
 		display: flex;
 		width: max-content;
 		max-width: min(250px, calc(100vw - 32px));
@@ -139,29 +243,14 @@
 		white-space: normal;
 	}
 
-	.term-help__tooltip[data-align='left'] {
-		left: 0;
+	.term-help__tooltip[data-side='top'] {
+		transform: translateY(2px);
 	}
 
-	.term-help__tooltip[data-align='center'] {
-		left: 50%;
-		transform: translate(-50%, -2px);
-	}
-
-	.term-help__tooltip[data-align='right'] {
-		right: 0;
-	}
-
-	.term-help__anchor:hover .term-help__tooltip,
-	.term-help__anchor:focus-within .term-help__tooltip {
+	.term-help__tooltip[data-open='true'] {
 		opacity: 1;
 		transform: translateY(0);
 		visibility: visible;
-	}
-
-	.term-help__anchor:hover .term-help__tooltip[data-align='center'],
-	.term-help__anchor:focus-within .term-help__tooltip[data-align='center'] {
-		transform: translate(-50%, 0);
 	}
 
 	.term-help__definition {
