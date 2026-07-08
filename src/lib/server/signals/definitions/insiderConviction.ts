@@ -7,10 +7,10 @@ import type { SignalDefinition } from '../types.js';
  * Decay from *publication*, not the trade date: a filing is new information
  * the day it becomes public, and stays "news" for roughly three weeks.
  */
-const HALF_LIFE_DAYS = 21;
+export const HALF_LIFE_DAYS = 21;
 
 /** Board members carry more information than related parties. */
-const ROLE_WEIGHTS = {
+export const ROLE_WEIGHTS = {
 	executive_board: 1.0,
 	supervisory_board: 0.85,
 	other: 0.7, // "Sonstige Führungsperson"
@@ -18,7 +18,16 @@ const ROLE_WEIGHTS = {
 } as const;
 
 /** Only share dealings count; derivatives/debt are noise for this signal. */
-const COUNTED_INSTRUMENT_TYPE = 'Aktie';
+export const COUNTED_INSTRUMENT_TYPE = 'Aktie';
+
+/** Publication-age decay factor in (0, 1] applied to a dealing's EUR amount. */
+export function publicationDecay(publishedDate: string, runDate: string): number {
+	const age = Math.max(0, daysBetween(publishedDate, runDate));
+	return Math.pow(0.5, age / HALF_LIFE_DAYS);
+}
+
+/** 3-month drop at which "buying into a falling price" starts to count. */
+export const DECLINE_THRESHOLD = 0.1;
 
 /**
  * Absolute materiality floor (EUR, role-weighted decayed buying) per cap
@@ -57,7 +66,7 @@ const CONTRARIAN_BOOST_MAX = 0.5;
 export const insiderConvictionSignal: SignalDefinition = {
 	slug: 'insider_conviction',
 	name: 'Insider Conviction',
-	version: 2,
+	version: 3,
 	params: {
 		window_days: INSIDER_WINDOW_DAYS,
 		half_life_days: HALF_LIFE_DAYS,
@@ -70,6 +79,7 @@ export const insiderConvictionSignal: SignalDefinition = {
 		cluster_step: CLUSTER_STEP,
 		cluster_factor_max: CLUSTER_FACTOR_MAX,
 		contrarian_boost_max: CONTRARIAN_BOOST_MAX,
+		decline_threshold: DECLINE_THRESHOLD,
 		severity_scale: '0.2 = at floor, 0.5 = strong, 1 = exceptional'
 	},
 	evaluate(instrument, ctx) {
@@ -94,8 +104,7 @@ export const insiderConvictionSignal: SignalDefinition = {
 				continue;
 			}
 			buyValue += amount;
-			const age = Math.max(0, daysBetween(tx.publishedDate, ctx.runDate));
-			weightedBuys += amount * ROLE_WEIGHTS[tx.partyRole] * Math.pow(0.5, age / HALF_LIFE_DAYS);
+			weightedBuys += amount * ROLE_WEIGHTS[tx.partyRole] * publicationDecay(tx.publishedDate, ctx.runDate);
 			if (tx.partyName === null) hasUnnamedBuyer = true;
 			else namedBuyers.add(tx.partyName);
 			if (newestPublished === null || tx.publishedDate > newestPublished) {
@@ -125,16 +134,20 @@ export const insiderConvictionSignal: SignalDefinition = {
 			}))
 		};
 
-		const passesSize = weightedBuys >= floor;
-		const passesCluster = buyerCount >= 2 && weightedBuys >= floor * CLUSTER_FLOOR_FRACTION;
-		if (buyValue === 0 || (!passesSize && !passesCluster)) {
+		const passesSize = buyValue > 0 && weightedBuys >= floor;
+		const passesCluster =
+			buyValue > 0 && buyerCount >= 2 && weightedBuys >= floor * CLUSTER_FLOOR_FRACTION;
+		const drop = Math.max(0, -(instrument.return3m ?? 0));
+		rationale.passes_size_gate = passesSize;
+		rationale.passes_cluster_gate = passesCluster;
+		rationale.bought_into_decline = buyValue > 0 && drop >= DECLINE_THRESHOLD;
+		if (!passesSize && !passesCluster) {
 			return { passedGate: false, score: null, rationale };
 		}
 
 		const sizeScore = Math.min(1, Math.log1p(weightedBuys / floor) / Math.log1p(SATURATION_MULTIPLE));
 		const clusterFactor = Math.min(CLUSTER_FACTOR_MAX, 1 + CLUSTER_STEP * (buyerCount - 1));
 		const sellDampen = buyValue / (buyValue + SELL_DAMPING * sellValue);
-		const drop = Math.max(0, -(instrument.return3m ?? 0));
 		const contrarianBoost = 1 + Math.min(CONTRARIAN_BOOST_MAX, drop);
 		const severity = Math.min(1, sizeScore * clusterFactor * sellDampen * contrarianBoost);
 
@@ -149,6 +162,6 @@ export const insiderConvictionSignal: SignalDefinition = {
 
 function insiderHeadline(buyerCount: number, buyValue: number, drop: number): string {
 	const who = buyerCount === 1 ? '1 insider' : `${buyerCount} insiders`;
-	const intoWeakness = drop >= 0.1 ? ' into a falling price' : '';
+	const intoWeakness = drop >= DECLINE_THRESHOLD ? ' into a falling price' : '';
 	return `${who} bought €${formatCompactEur(buyValue)} in 30d${intoWeakness}`;
 }

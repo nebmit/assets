@@ -26,7 +26,7 @@ const RELATIVE_VALUE_SLUG = 'relative_value';
 const INSIDER_CONVICTION_SLUG = 'insider_conviction';
 
 /** `in (…)` list for raw SQL — drizzle's template expands arrays as tuples, not pg arrays. */
-function idList(ids: number[]) {
+export function idList(ids: number[]) {
 	return sql.join(
 		ids.map((id) => sql`${id}`),
 		sql`, `
@@ -288,7 +288,7 @@ async function loadWeeklySeries(
 }
 
 /** Latest close plus 52-week high/low per instrument, bounded by the run date. */
-async function loadLatestPrices(
+export async function loadLatestPrices(
 	db: Db,
 	instrumentIds: number[],
 	runDate: string

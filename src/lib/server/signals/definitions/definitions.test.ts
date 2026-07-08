@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { superSector } from '../sectors.js';
 import type { InsiderTx, UniverseContext, UniverseInstrument } from '../types.js';
-import { insiderConvictionSignal } from './insiderConviction.js';
+import { insiderConvictionSignal, publicationDecay } from './insiderConviction.js';
 import { relativeValueSignal } from './relativeValue.js';
 
 const RUN_DATE = '2026-07-02';
@@ -139,6 +139,47 @@ describe('insiderConvictionSignal', () => {
 		expect(insiderConvictionSignal.evaluate(cluster, ctx).score as number).toBeGreaterThan(
 			insiderConvictionSignal.evaluate(solo, ctx).score as number
 		);
+	});
+
+	it('exposes which gate passed and buying-into-decline in the rationale', () => {
+		const soloSize = makeInstrument({
+			instrumentId: 1,
+			return3m: -0.2,
+			insiderTx: [makeTx({ amount: 400_000 })]
+		});
+		const clusterOnly = makeInstrument({
+			instrumentId: 2,
+			return3m: 0.05,
+			insiderTx: [
+				makeTx({ partyName: 'A', amount: 30_000 }),
+				makeTx({ partyName: 'B', amount: 30_000 })
+			]
+		});
+		const gatedOut = makeInstrument({ instrumentId: 3, return3m: -0.5, insiderTx: [makeTx({ amount: 5_000 })] });
+		const ctx = ctxOf([soloSize, clusterOnly, gatedOut]);
+
+		expect(insiderConvictionSignal.evaluate(soloSize, ctx).rationale).toMatchObject({
+			passes_size_gate: true,
+			bought_into_decline: true
+		});
+		expect(insiderConvictionSignal.evaluate(clusterOnly, ctx).rationale).toMatchObject({
+			passes_size_gate: false,
+			passes_cluster_gate: true,
+			bought_into_decline: false
+		});
+		// gate flags are persisted for non-passers too, so query-time readers see them
+		expect(insiderConvictionSignal.evaluate(gatedOut, ctx).rationale).toMatchObject({
+			passes_size_gate: false,
+			passes_cluster_gate: false,
+			bought_into_decline: true
+		});
+	});
+
+	it('decays publication weight with a 21-day half-life', () => {
+		expect(publicationDecay(RUN_DATE, RUN_DATE)).toBe(1);
+		expect(publicationDecay('2026-06-11', RUN_DATE)).toBeCloseTo(0.5); // 21 days earlier
+		// future publication dates (bad data) never inflate the weight
+		expect(publicationDecay('2026-07-10', RUN_DATE)).toBe(1);
 	});
 });
 
