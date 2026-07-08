@@ -5,6 +5,8 @@ import { z } from 'zod';
 const envSchema = z.object({
 	DATABASE_URL: z.string().url().default('postgres://assets:assets@localhost:5432/assets'),
 	RAW_DATA_DIR: z.string().default('./data/raw'),
+	/** Days of raw archives to keep; unset keeps everything forever. */
+	RAW_RETENTION_DAYS: z.coerce.number().int().positive().optional(),
 	INGEST_CRON: z.string().default('30 6 * * *'),
 	TZ: z.string().default('Europe/Berlin')
 });

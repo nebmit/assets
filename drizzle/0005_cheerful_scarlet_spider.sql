@@ -1,0 +1,1 @@
+CREATE INDEX "eod_price_trade_date_idx" ON "eod_price" USING btree ("trade_date");

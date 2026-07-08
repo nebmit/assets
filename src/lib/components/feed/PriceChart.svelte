@@ -84,15 +84,33 @@
 				onpointermove={onPointerMove}
 				onpointerleave={() => (hoverX = null)}
 			>
-				{#if chartW > 0}
-					<Sparkline
-						values={closes}
-						width={chartW}
-						height={CHART_HEIGHT}
-						strokeWidth={STROKE_WIDTH}
-						{direction}
-					/>
+				{#if hover}
+					<div
+						class="pointer-events-none absolute inset-y-0 z-[1] w-px"
+						style:left="{hover.px}px"
+						style:background="var(--border-strong)"
+					></div>
 				{/if}
+				<div class="relative min-w-0 flex-1" style:height="{CHART_HEIGHT}px">
+					{#if chartW > 0}
+						<Sparkline
+							values={closes}
+							width={chartW}
+							height={CHART_HEIGHT}
+							strokeWidth={STROKE_WIDTH}
+							{direction}
+						/>
+					{/if}
+					{#if hover}
+						<div
+							class="pointer-events-none absolute z-[2] h-[6px] w-[6px] rounded-full"
+							style:left="{hover.px - 3}px"
+							style:top="{hover.py - 3}px"
+							style:background="var(--ink)"
+							style:border="1.5px solid var(--surface-card)"
+						></div>
+					{/if}
+				</div>
 				{#if hi52 !== null}
 					<span class="absolute top-[6px] right-1 font-mono text-xs text-text-tertiary tabular-nums">
 						{formatPrice(hi52)}
@@ -107,19 +125,7 @@
 				{/if}
 				{#if hover}
 					<div
-						class="pointer-events-none absolute inset-y-0 w-px"
-						style:left="{hover.px}px"
-						style:background="var(--border-strong)"
-					></div>
-					<div
-						class="pointer-events-none absolute h-[6px] w-[6px] rounded-full"
-						style:left="{hover.px - 3}px"
-						style:top="{hover.py - 3}px"
-						style:background="var(--ink)"
-						style:border="1.5px solid var(--surface-card)"
-					></div>
-					<div
-						class="pointer-events-none absolute -top-[2px] flex flex-col items-center gap-px rounded-xs border border-border-subtle bg-surface-card px-[6px] py-[3px] shadow-xs"
+						class="pointer-events-none absolute -top-[2px] z-[3] flex flex-col items-center gap-px rounded-xs border border-border-subtle bg-surface-card px-[6px] py-[3px] shadow-xs"
 						style:left="{hover.tipLeft}px"
 					>
 						<span class="font-mono text-2xs text-text-tertiary tabular-nums">

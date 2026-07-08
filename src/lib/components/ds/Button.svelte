@@ -9,25 +9,36 @@
 	 */
 	interface Props {
 		variant?: "primary" | "secondary" | "ghost";
+		/** `icon` renders a 26px square for icon-only actions (pass a title). */
+		size?: "default" | "icon";
 		disabled?: boolean;
 		title?: string;
 		href?: string;
 		target?: string;
 		rel?: string;
+		"aria-pressed"?: boolean;
+		"aria-label"?: string;
 		onclick?: (event: MouseEvent) => void;
 		children: Snippet;
 	}
 
 	let {
 		variant = "primary",
+		size = "default",
 		disabled = false,
 		title,
 		href,
 		target,
 		rel,
+		"aria-pressed": ariaPressed,
+		"aria-label": ariaLabel,
 		onclick,
 		children,
 	}: Props = $props();
+
+	const sizeClasses = $derived(
+		size === "icon" ? "w-[26px] px-0" : "px-[12px]",
+	);
 </script>
 
 {#if href !== undefined}
@@ -37,7 +48,8 @@
 		{rel}
 		{title}
 		{onclick}
-		class="ds-btn ds-btn--{variant} inline-flex h-[26px] cursor-pointer items-center justify-center gap-[6px] rounded-sm px-[12px] font-sans text-xs font-medium tracking-tight whitespace-nowrap no-underline select-none"
+		aria-label={ariaLabel}
+		class="ds-btn ds-btn--{variant} {sizeClasses} inline-flex h-[26px] cursor-pointer items-center justify-center gap-[6px] rounded-sm font-sans text-xs font-medium tracking-tight whitespace-nowrap no-underline select-none"
 	>
 		{@render children()}
 	</a>
@@ -47,7 +59,9 @@
 		{disabled}
 		{title}
 		{onclick}
-		class="ds-btn ds-btn--{variant} inline-flex h-[26px] cursor-pointer items-center justify-center gap-[6px] rounded-sm px-[12px] font-sans text-xs font-medium tracking-tight whitespace-nowrap select-none disabled:cursor-not-allowed disabled:opacity-40"
+		aria-pressed={ariaPressed}
+		aria-label={ariaLabel}
+		class="ds-btn ds-btn--{variant} {sizeClasses} inline-flex h-[26px] cursor-pointer items-center justify-center gap-[6px] rounded-sm font-sans text-xs font-medium tracking-tight whitespace-nowrap select-none disabled:cursor-not-allowed disabled:opacity-40"
 	>
 		{@render children()}
 	</button>

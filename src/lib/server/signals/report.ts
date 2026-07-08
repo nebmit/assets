@@ -29,14 +29,16 @@ export async function signalReport(
 	db: Db,
 	slug: string,
 	runDate: string,
-	top: number
+	top: number,
+	/** ISINs to hide (a user's ignore list); `passed` reflects the exclusion. */
+	excludeIsins?: ReadonlySet<string>
 ): Promise<SignalReport | null> {
 	const [run] = await db.select().from(signalRun).where(eq(signalRun.runDate, runDate));
 	if (!run) return null;
 	const [definition] = await db.select().from(signalDefinition).where(eq(signalDefinition.slug, slug));
 	if (!definition) return null;
 
-	const rows = await db
+	const allRows = await db
 		.select({
 			rank: signal.rank,
 			score: signal.score,
@@ -53,6 +55,10 @@ export async function signalReport(
 			and(eq(signal.runId, run.id), eq(signal.definitionId, definition.id), eq(signal.passedGate, true))
 		)
 		.orderBy(signal.rank);
+	const rows =
+		excludeIsins === undefined || excludeIsins.size === 0
+			? allRows
+			: allRows.filter((r) => !excludeIsins.has(r.isin));
 
 	return {
 		signal: slug,

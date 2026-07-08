@@ -89,7 +89,13 @@ export const eodPrice = pgTable(
 		currency: text('currency'),
 		source: text('source').notNull().default('boerse_frankfurt')
 	},
-	(t) => [primaryKey({ columns: [t.instrumentId, t.tradeDate] })]
+	(t) => [
+		primaryKey({ columns: [t.instrumentId, t.tradeDate] }),
+		// The signal engine scans date windows across all instruments
+		// (context.ts, performance.ts); the PK leads with instrument_id and
+		// can't serve those.
+		index('eod_price_trade_date_idx').on(t.tradeDate)
+	]
 );
 
 /**
@@ -245,6 +251,66 @@ export const signalPerformance = pgTable(
 		computedAt: timestamp('computed_at', { withTimezone: true }).notNull().defaultNow()
 	},
 	(t) => [uniqueIndex('signal_performance_natural_key_idx').on(t.signalId, t.horizonDays)]
+);
+
+/**
+ * One wrapped copy of a user's data-encryption key per enrolled passkey
+ * (see src/lib/crypto/README.md). Every column is ciphertext or public
+ * metadata: the KEK that opens `wrappedDek` is derived client-side from a
+ * WebAuthn PRF output and never reaches this server. Users are the SSO
+ * accounts on core.timben, so `userUuid` has no local FK target. Wraps are
+ * insert-only — overwriting one with a wrap of a different DEK would
+ * silently orphan the user's data.
+ */
+export const userKeyWrap = pgTable(
+	'user_key_wrap',
+	{
+		userUuid: text('user_uuid').notNull(),
+		/** base64url WebAuthn credential id of the passkey whose PRF wraps the DEK. */
+		credentialId: text('credential_id').notNull(),
+		/** Key-derivation domain, e.g. 'assets-user-data'; part of the client contract. */
+		purpose: text('purpose').notNull(),
+		/** Envelope blob "v1.<iv>.<ct>" — opaque here beyond a format check. */
+		wrappedDek: text('wrapped_dek').notNull(),
+		createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow()
+	},
+	(t) => [primaryKey({ columns: [t.userUuid, t.purpose, t.credentialId] })]
+);
+
+/**
+ * Named client-side-encrypted document per user ('watchlist' today).
+ * `version` is a compare-and-swap counter for optimistic concurrency across
+ * tabs/devices; the server never sees the plaintext.
+ */
+export const userBlob = pgTable(
+	'user_blob',
+	{
+		userUuid: text('user_uuid').notNull(),
+		name: text('name').notNull(),
+		/** Envelope blob "v1.<iv>.<ct>" — opaque here beyond a format check. */
+		ciphertext: text('ciphertext').notNull(),
+		version: integer('version').notNull().default(1),
+		updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow()
+	},
+	(t) => [primaryKey({ columns: [t.userUuid, t.name] })]
+);
+
+/**
+ * A user's ignored assets — deliberately plaintext, unlike the watchlist:
+ * the MCP tools must be able to filter surfaced results server-side, which
+ * ciphertext cannot support. `name` snapshots the display name at add-time
+ * so the management list renders assets the current run didn't surface.
+ * Users are SSO accounts on core.timben, so `userUuid` has no local FK.
+ */
+export const userIgnoredAsset = pgTable(
+	'user_ignored_asset',
+	{
+		userUuid: text('user_uuid').notNull(),
+		isin: text('isin').notNull(),
+		name: text('name').notNull(),
+		addedAt: timestamp('added_at', { withTimezone: true }).notNull().defaultNow()
+	},
+	(t) => [primaryKey({ columns: [t.userUuid, t.isin] })]
 );
 
 /** Bookkeeping + incremental watermarks per ingestion job execution. */

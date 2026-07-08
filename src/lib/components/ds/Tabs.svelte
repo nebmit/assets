@@ -1,21 +1,26 @@
 <script lang="ts">
 	/**
 	 * Segmented tabs: inset track, boxed active segment. Sentence-case
-	 * labels; active is ink on card white, inactive is tertiary text.
+	 * labels; active is ink on card white, inactive is tertiary text. A tab
+	 * may carry a small count (e.g. watchlist size) rendered tabular so the
+	 * segment doesn't jitter as it changes.
 	 */
 	interface Tab {
 		value: string;
 		label: string;
 		disabled?: boolean;
+		count?: number;
 	}
 
 	interface Props {
 		tabs: Tab[];
 		value: string;
 		onchange?: (value: string) => void;
+		/** Tooltip for disabled segments. */
+		disabledHint?: string;
 	}
 
-	let { tabs, value, onchange }: Props = $props();
+	let { tabs, value, onchange, disabledHint = 'Coming soon' }: Props = $props();
 </script>
 
 <div class="inline-flex gap-[2px] rounded-md bg-surface-inset p-[2px]">
@@ -24,8 +29,9 @@
 		<button
 			type="button"
 			disabled={tab.disabled}
-			title={tab.disabled ? 'Coming soon' : undefined}
-			class="inline-flex cursor-pointer items-center rounded-sm border-none px-[10px] py-[4px] font-sans text-xs font-medium whitespace-nowrap transition-colors duration-[120ms] disabled:cursor-not-allowed disabled:opacity-40"
+			title={tab.disabled ? disabledHint : undefined}
+			aria-pressed={active}
+			class="inline-flex cursor-pointer items-center gap-[6px] rounded-sm border-none px-[10px] py-[4px] font-sans text-xs font-medium whitespace-nowrap transition-colors duration-[120ms] disabled:cursor-not-allowed disabled:opacity-40"
 			class:bg-surface-card={active}
 			class:shadow-xs={active}
 			class:text-text-primary={active}
@@ -37,6 +43,13 @@
 			}}
 		>
 			{tab.label}
+			{#if tab.count !== undefined}
+				<span
+					class="font-mono text-2xs leading-none tabular-nums"
+					class:text-text-tertiary={active}
+					class:text-text-muted={!active}>{tab.count}</span
+				>
+			{/if}
 		</button>
 	{/each}
 </div>

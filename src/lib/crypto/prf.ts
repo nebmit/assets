@@ -61,11 +61,20 @@ export interface PrfCeremonyOptions {
 	credentialIds?: Uint8Array[];
 }
 
+export interface PrfCeremonyResult {
+	/** Raw 32-byte PRF output; zero it once a key has been derived. */
+	output: Uint8Array;
+	/** base64url id of the credential that answered — the key the server-side DEK wrap is filed under. */
+	credentialId: string;
+}
+
 /**
- * Runs the PRF ceremony and returns the raw 32-byte PRF output. Prefer
- * `derivePrfKek` unless you need the output itself.
+ * Runs the PRF ceremony and returns the raw PRF output together with the id
+ * of the credential that produced it. The credential id matters whenever the
+ * output maps to per-passkey server state (each passkey wraps the DEK under
+ * its own PRF-derived KEK).
  */
-export async function evaluatePrf(options: PrfCeremonyOptions): Promise<Uint8Array> {
+export async function runPrfCeremony(options: PrfCeremonyOptions): Promise<PrfCeremonyResult> {
 	const salt = await prfSalt(options.purpose);
 	const credential = (await navigator.credentials.get({
 		publicKey: {
@@ -86,10 +95,19 @@ export async function evaluatePrf(options: PrfCeremonyOptions): Promise<Uint8Arr
 		| { prf?: { results?: { first?: ArrayBuffer } } }
 		| undefined;
 	const first = results?.prf?.results?.first;
-	if (!first) {
+	if (!credential || !first) {
 		throw new PrfNotAvailableError();
 	}
-	return new Uint8Array(first);
+	return { output: new Uint8Array(first), credentialId: credential.id };
+}
+
+/**
+ * Runs the PRF ceremony and returns the raw 32-byte PRF output. Prefer
+ * `derivePrfKek` unless you need the output itself.
+ */
+export async function evaluatePrf(options: PrfCeremonyOptions): Promise<Uint8Array> {
+	const { output } = await runPrfCeremony(options);
+	return output;
 }
 
 /**

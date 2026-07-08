@@ -22,6 +22,27 @@
       "when": 1783328910729,
       "tag": "0002_signal_performance",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1783420573206,
+      "tag": "0003_mature_triathlon",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1783459140990,
+      "tag": "0004_purple_the_enforcers",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1783495068402,
+      "tag": "0005_cheerful_scarlet_spider",
+      "breakpoints": true
     }
   ]
 }

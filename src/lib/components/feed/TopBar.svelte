@@ -7,12 +7,17 @@
 	/**
 	 * App chrome. "Use in Claude" opens Claude's add-custom-connector flow.
 	 * Claude does not currently honor connector prefill params, so the MCP URL is
-	 * copied separately. Watchlist/Ignored are rendered per the design but
-	 * disabled — their features ship later. Sign in / log out are live, driven by
-	 * the SSO session (links resolve on the SSO host).
+	 * copied separately. Sign in / log out are live, driven by the SSO session
+	 * (links resolve on the SSO host).
 	 */
 	interface Props {
 		search: string;
+		tab: string;
+		ontabchange?: (value: string) => void;
+		/** Watchlist size shown on its tab; null hides the count (locked/signed out). */
+		watchlistCount?: number | null;
+		/** Ignore-list size shown on its tab; null hides the count (locked/signed out). */
+		ignoredCount?: number | null;
 		user: { uuid: string; elevated: boolean } | null;
 		signInUrl: string;
 		signOutUrl: string;
@@ -23,6 +28,10 @@
 
 	let {
 		search = $bindable(),
+		tab,
+		ontabchange,
+		watchlistCount = null,
+		ignoredCount = null,
 		user,
 		signInUrl,
 		signOutUrl,
@@ -34,11 +43,19 @@
 	let copiedMcpUrl = $state(false);
 	let copyReset: ReturnType<typeof setTimeout> | undefined;
 
-	const navTabs = [
+	const navTabs = $derived([
 		{ value: "overview", label: "Overview" },
-		{ value: "watchlist", label: "Watchlist", disabled: true },
-		{ value: "ignored", label: "Ignored", disabled: true },
-	];
+		{
+			value: "watchlist",
+			label: "Watchlist",
+			count: watchlistCount ?? undefined,
+		},
+		{
+			value: "ignored",
+			label: "Ignored",
+			count: ignoredCount ?? undefined,
+		},
+	]);
 
 	async function copyMcpUrl() {
 		if (
@@ -78,10 +95,9 @@
 		</div>
 		<span class="text-md font-medium tracking-tight">assets</span>
 	</div>
-	<span class="hidden h-5 w-px bg-border-subtle lg:block"></span>
-	<div class="hidden lg:block">
-		<Tabs tabs={navTabs} value="overview" />
-	</div>
+	<span class="hidden h-5 w-px bg-border-subtle sm:block"></span>
+	<Tabs tabs={navTabs} value={tab} onchange={ontabchange} />
+
 	<span class="flex-1"></span>
 	<div class="w-full order-last sm:order-none sm:w-[230px]">
 		<Input bind:value={search} placeholder="Name, ISIN or WKN" />

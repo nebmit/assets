@@ -32,6 +32,26 @@ const dek = await unwrapDek(storedBlob, kek); // or generateDek() on first use
 const ciphertext = await encryptJson(dek, watchlist);
 ```
 
+## Getting the key without a second ceremony
+
+Two supplements keep the "one tap per visit" cost down in practice:
+
+- **SSO handoff (`handoff.ts`).** When the sign-in link carries
+  `prf_purpose=<purpose>`, core.timben's auth page evaluates the PRF as part
+  of the sign-in ceremony itself and returns the output in the redirect's
+  URL **fragment** (`#prf=…&prf_cred=…&prf_purpose=…`). Fragments never
+  reach a server, and core only redirects to allowlisted `*.timben.net`
+  targets. The root layout parses the fragment on landing, strips it from
+  the URL immediately, and feeds it to the store — signing in unlocks the
+  data with zero extra taps. `handoff.ts` owns the parameter names; core's
+  `keyHandoff.ts` emitter pins them with a shared test fixture.
+- **Key cache (`keyCache.ts`).** The unlocked DEK is kept as a
+  **non-extractable** CryptoKey in IndexedDB, keyed by user uuid + purpose,
+  so reloads and return visits decrypt silently. The cache is purged on
+  sign-out or when a different user signs in. Extractable DEKs exist only
+  transiently: at first-time setup and when enrolling an additional passkey
+  (both wrap the DEK and drop the extractable handle immediately).
+
 ## Constraints to keep in mind
 
 - **Lost passkeys = lost data.** There is deliberately no fallback. Surface

@@ -1,18 +1,17 @@
 import { getDb } from '$lib/server/db/index.js';
-import { loadFeed } from '$lib/server/feed/queries.js';
-import { DEFAULT_VIEW_SLUG, isFeedViewSlug } from '$lib/feed/views.js';
+import { getFeedPayload } from '$lib/server/feed/cache.js';
 import type { PageServerLoad } from './$types.js';
 
 /**
- * SSR payload for the surfaced feed. `payload === null` with `dbError === false`
- * means no signal run exists yet (fresh install); a caught failure renders
- * the error empty-state instead of a 500.
+ * SSR payload for the surfaced feed — all views in one cached payload, so
+ * this load has no URL dependency and view switches never re-run it.
+ * `payload === null` with `dbError === false` means no signal run exists yet
+ * (fresh install); a caught failure renders the error empty-state instead of
+ * a 500.
  */
-export const load: PageServerLoad = async ({ url }) => {
+export const load: PageServerLoad = async () => {
 	try {
-		const viewParam = url.searchParams.get('view');
-		const selectedView = isFeedViewSlug(viewParam) ? viewParam : DEFAULT_VIEW_SLUG;
-		const payload = await loadFeed(getDb(), selectedView);
+		const payload = await getFeedPayload(getDb());
 		return { payload, dbError: false };
 	} catch (err) {
 		console.error('feed load failed', err);

@@ -22,6 +22,19 @@ async function currentMembers(ctx: JobContext): Promise<{ id: number; isin: stri
 		.where(isNull(indexMembership.validTo));
 }
 
+/** Latest stored trade date per instrument, one query for the whole universe. */
+async function priceWatermarks(ctx: JobContext): Promise<Map<number, string>> {
+	const rows = await ctx.db
+		.select({ instrumentId: eodPrice.instrumentId, watermark: max(eodPrice.tradeDate) })
+		.from(eodPrice)
+		.groupBy(eodPrice.instrumentId);
+	const byInstrument = new Map<number, string>();
+	for (const row of rows) {
+		if (row.watermark !== null) byInstrument.set(row.instrumentId, row.watermark);
+	}
+	return byInstrument;
+}
+
 async function fetchHistory(isin: string, minDate: string, maxDate: string, archive: boolean) {
 	const rows: { date: string; open: number | null; high: number | null; low: number | null; close: number; turnoverPieces: number | null }[] = [];
 	for (let offset = 0; ; offset += PAGE_SIZE) {
@@ -60,15 +73,13 @@ export const pricesJob: Job = {
 	source: BF_SOURCE,
 	async run(ctx): Promise<JobStats> {
 		const members = await currentMembers(ctx);
+		const watermarks = await priceWatermarks(ctx);
 		let inserted = 0;
 		let skipped = 0;
 		let failed = 0;
 		for (const member of members) {
 			try {
-				const [{ watermark }] = await ctx.db
-					.select({ watermark: max(eodPrice.tradeDate) })
-					.from(eodPrice)
-					.where(eq(eodPrice.instrumentId, member.id));
+				const watermark = watermarks.get(member.id) ?? null;
 				if (watermark !== null && watermark >= addDays(ctx.runDate, -GAP_REPAIR_DAYS)) {
 					skipped++;
 					continue;

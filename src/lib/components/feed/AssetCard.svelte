@@ -3,6 +3,7 @@
 	import { FINANCIAL_TERMS, type FinancialTerm } from '$lib/financialTerms.js';
 	import { formatCompactEur, formatPrice, formatRatio } from '$lib/format.js';
 	import type { CardData } from '$lib/feed/types.js';
+	import { getIgnoreConfirm, getIgnored, getWatchlist } from '$lib/userData/context.js';
 	import Badge from '../ds/Badge.svelte';
 	import DeltaBadge from '../ds/DeltaBadge.svelte';
 	import Link from '../ds/Link.svelte';
@@ -16,6 +17,10 @@
 	 * evidence badges + day-over-day state), basics + hero price, scrubbable
 	 * price chart, valuation vs sector, then insider trades and regulatory
 	 * news on a sunken second row. Surfaces facts only — no recommendation.
+	 * Signed-in users get a watch toggle and an ignore action in the evidence
+	 * strip (ink, like all actions — blue/amber stay reserved for data
+	 * direction). Ignoring asks for confirmation; ignored cards never render,
+	 * so the eye-off button is one-way and un-ignoring lives in the Ignored tab.
 	 */
 	interface Props {
 		card: CardData;
@@ -23,6 +28,27 @@
 	}
 
 	let { card, runDate }: Props = $props();
+
+	const watchlist = getWatchlist();
+	const ignored = getIgnored();
+	const ignoreConfirm = getIgnoreConfirm();
+	const watchlisted = $derived(watchlist.isins.has(card.isin));
+	/** Hidden while signed out/unsupported; the tab itself explains those states. */
+	const watchable = $derived(
+		watchlist.status === 'ready' ||
+			watchlist.status === 'locked' ||
+			watchlist.status === 'unlocking' ||
+			watchlist.status === 'error'
+	);
+	/** The plaintext ignore list needs no passkey — signed in is enough. */
+	const ignorable = $derived(ignored.status === 'ready');
+	const watchTitle = $derived(
+		watchlist.status === 'ready'
+			? watchlisted
+				? `Remove ${card.name} from your watchlist`
+				: `Add ${card.name} to your watchlist`
+			: 'Unlocks your encrypted watchlist with one passkey tap'
+	);
 
 	const equityUrl = $derived(`https://www.boerse-frankfurt.de/equity/${card.isin.toLowerCase()}`);
 
@@ -44,9 +70,9 @@
 <article
 	class="flex flex-col overflow-hidden rounded-md border border-border-subtle bg-surface-sunken shadow-xs"
 >
-	{#if card.reasons.length > 0 || card.lifecycle !== null}
+	{#if card.reasons.length > 0 || card.lifecycle !== null || watchable || ignorable}
 		<div
-			class="flex flex-wrap items-center gap-[6px] border-b border-border-subtle bg-surface-card px-5 py-[9px]"
+			class="flex flex-wrap items-center gap-[6px] border-b border-border-subtle bg-surface-card py-[9px] pr-[14px] pl-5"
 		>
 			{#if card.lifecycle !== null}
 				<Badge tone={lifecycleTone} variant="outline">{card.lifecycle}</Badge>
@@ -65,6 +91,62 @@
 					{/if}
 				</span>
 			{/each}
+			{#if watchable || ignorable}
+				<span class="ml-auto inline-flex items-center gap-[2px]">
+					{#if ignorable}
+						<button
+							type="button"
+							class="card-action-btn inline-flex h-[26px] w-[26px] cursor-pointer items-center justify-center rounded-sm border-none bg-transparent disabled:cursor-not-allowed disabled:opacity-40"
+							aria-label="Ignore {card.name} — hide it from all pages"
+							title="Ignore {card.name} — hide it from all pages"
+							onclick={() => ignoreConfirm.request(card)}
+						>
+							<svg
+								width="15"
+								height="15"
+								viewBox="0 0 24 24"
+								fill="none"
+								stroke="currentColor"
+								stroke-width="1.7"
+								stroke-linecap="round"
+								stroke-linejoin="round"
+								aria-hidden="true"
+							>
+								<path
+									d="M17.94 17.94 A10.07 10.07 0 0 1 12 20 c-7 0 -11 -8 -11 -8 a18.45 18.45 0 0 1 5.06 -5.94 M9.9 4.24 A9.12 9.12 0 0 1 12 4 c7 0 11 8 11 8 a18.5 18.5 0 0 1 -2.16 3.19 m-6.72 -1.07 a3 3 0 1 1 -4.24 -4.24"
+								/>
+								<path d="M1 1 L23 23" />
+							</svg>
+						</button>
+					{/if}
+					{#if watchable}
+						<button
+							type="button"
+							class="card-action-btn inline-flex h-[26px] w-[26px] cursor-pointer items-center justify-center rounded-sm border-none bg-transparent disabled:cursor-not-allowed disabled:opacity-40"
+							class:card-action-btn--on={watchlisted}
+							aria-pressed={watchlisted}
+							aria-label={watchTitle}
+							title={watchTitle}
+							disabled={watchlist.status === 'unlocking'}
+							onclick={() => void watchlist.toggle(card)}
+						>
+							<svg
+								width="15"
+								height="15"
+								viewBox="0 0 24 24"
+								fill={watchlisted ? 'currentColor' : 'none'}
+								stroke="currentColor"
+								stroke-width="1.7"
+								stroke-linecap="round"
+								stroke-linejoin="round"
+								aria-hidden="true"
+							>
+								<path d="M19 21 12 16 5 21 V5 a2 2 0 0 1 2 -2 h10 a2 2 0 0 1 2 2 Z" />
+							</svg>
+						</button>
+					{/if}
+				</span>
+			{/if}
 		</div>
 	{/if}
 	<div class="flex flex-col items-stretch bg-surface-card md:flex-row">
@@ -187,3 +269,23 @@
 		<NewsList news={card.news} isin={card.isin} />
 	</div>
 </article>
+
+<style>
+	.card-action-btn {
+		color: var(--color-text-tertiary);
+		transition:
+			color 120ms var(--ease-standard),
+			background 120ms var(--ease-standard);
+	}
+	.card-action-btn:hover:not(:disabled) {
+		color: var(--ink);
+		background: var(--color-surface-hover);
+	}
+	.card-action-btn--on {
+		color: var(--ink);
+	}
+	.card-action-btn:focus-visible {
+		outline: none;
+		box-shadow: var(--ring-focus);
+	}
+</style>

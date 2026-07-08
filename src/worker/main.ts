@@ -18,6 +18,7 @@ import {
 	summarizeRationale
 } from '../lib/server/signals/report.js';
 import { isoDate } from '../lib/server/util.js';
+import { pruneRawArchive } from '../lib/server/rawArchive.js';
 
 function arg(name: string): string | undefined {
 	const prefix = `--${name}=`;
@@ -33,6 +34,15 @@ async function runPipeline(jobNames: 'all' | string, runDate: string): Promise<b
 	const results = await runJobs(getDb(), jobs, runDate);
 	const failures = results.filter((r) => !r.ok).length;
 	console.log(`run ${runDate}: ${results.length - failures}/${results.length} jobs succeeded`);
+	if (jobNames === 'all') {
+		// Bounded raw-archive disk usage; a cleanup hiccup never fails the run.
+		try {
+			const removed = await pruneRawArchive(runDate);
+			if (removed > 0) console.log(`pruned ${removed} raw archive day(s) past retention`);
+		} catch (err) {
+			console.error('raw archive prune failed:', err);
+		}
+	}
 	return failures === 0;
 }
 

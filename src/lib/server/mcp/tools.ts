@@ -33,10 +33,15 @@ const descriptions: Record<string, string> = {
 		'the discount plus a small dividend-yield support bonus. Returns fired signals of a run.'
 };
 
+/** Appended to every tool: results are personalized by the account's ignore list. */
+const IGNORE_LIST_NOTE =
+	' Assets on the ignore list of the calling account (managed in the web app) are excluded from ' +
+	'results and counts.';
+
 /** One MCP tool per signal, derived from the engine registry. */
 export const signalTools: SignalToolMeta[] = [surfacedMeta, ...signalDefinitions].map((def) => ({
 	slug: def.slug,
 	name: def.name,
 	toolName: def.slug === surfacedMeta.slug ? 'surface_latest' : `signal_${def.slug}`,
-	description: descriptions[def.slug] ?? def.name
+	description: (descriptions[def.slug] ?? def.name) + IGNORE_LIST_NOTE
 }));

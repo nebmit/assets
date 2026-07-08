@@ -3,7 +3,7 @@
  * here must stay JSON-serializable: it crosses the SvelteKit load boundary.
  */
 
-import type { FeedViewOption } from './views.js';
+import type { FeedViewOption, FeedViewSlug } from './views.js';
 
 export type PartyRole = 'executive_board' | 'supervisory_board' | 'related_party' | 'other';
 export type TransactionSide = 'buy' | 'sell' | 'other';
@@ -83,8 +83,12 @@ export interface FeedPayload {
 	/** Signal-run date (yyyy-mm-dd) all card data is point-in-time consistent with. */
 	runDate: string;
 	universeSize: number | null;
-	view: FeedViewOption;
 	views: FeedViewOption[];
-	/** Assets surfaced by the selected view, in rank order. */
-	cards: CardData[];
+	/**
+	 * Assets surfaced by each view, in rank order. All views ship in one
+	 * payload so switching views never re-fetches; the heavy per-card arrays
+	 * (series/insiders/news) are shared references across views, which the
+	 * load serializer transfers only once.
+	 */
+	cardsByView: Record<FeedViewSlug, CardData[]>;
 }

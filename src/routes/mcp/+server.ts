@@ -8,6 +8,7 @@ import { RateLimiter } from '$lib/server/mcp/rateLimit.js';
 import { buildMcpServer } from '$lib/server/mcp/server.js';
 import { SessionStore } from '$lib/server/mcp/sessions.js';
 import { latestRunDate, signalReport } from '$lib/server/signals/report.js';
+import { listIgnoredIsins } from '$lib/server/userData/ignoredAssets.js';
 import type { RequestHandler } from './$types.js';
 
 /**
@@ -56,11 +57,14 @@ export const POST: RequestHandler = async ({ request, getClientAddress }) => {
 	// no session yet: the transport only accepts `initialize` here and mints
 	// the session id, which gets bound to the authenticated account
 	const db = getDb();
+	const userUuid = auth.user.uuid;
 	const server = buildMcpServer({
 		latestRunDate: () => latestRunDate(db),
-		signalReport: (slug, runDate, top) => signalReport(db, slug, runDate, top)
+		// The account's ignore list is re-read per call so mid-session edits
+		// in the web app apply to the next tool call immediately.
+		signalReport: async (slug, runDate, top) =>
+			signalReport(db, slug, runDate, top, await listIgnoredIsins(db, userUuid))
 	});
-	const userUuid = auth.user.uuid;
 	const newTransport = new WebStandardStreamableHTTPServerTransport({
 		sessionIdGenerator: () => randomUUID(),
 		enableJsonResponse: true,

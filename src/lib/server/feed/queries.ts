@@ -1,16 +1,11 @@
-import { and, desc, eq, inArray, lt } from 'drizzle-orm';
+import { and, desc, eq, inArray } from 'drizzle-orm';
 import { sql } from 'drizzle-orm';
 import type { Db } from '../db/index.js';
 import { instrument, issuer, signal, signalDefinition, signalRun } from '../db/schema.js';
-import { latestRunDate } from '../signals/report.js';
 import { addDays } from '../util.js';
-import {
-	DEFAULT_VIEW_SLUG,
-	FEED_VIEWS,
-	feedViewBySlug,
-	type FeedViewSlug
-} from '../../feed/views.js';
+import { DEFAULT_VIEW_SLUG, FEED_VIEWS, type FeedViewSlug } from '../../feed/views.js';
 import type {
+	CardData,
 	InsiderRowView,
 	LifecycleState,
 	NewsRowView,
@@ -38,65 +33,110 @@ function idList(ids: number[]) {
 	);
 }
 
+/** Build the per-view card map in FEED_VIEWS order with precise keys. */
+function buildCardsByView(
+	build: (slug: FeedViewSlug) => CardData[]
+): Record<FeedViewSlug, CardData[]> {
+	const out = {} as Record<FeedViewSlug, CardData[]>;
+	for (const view of FEED_VIEWS) out[view.slug] = build(view.slug);
+	return out;
+}
+
 /** Series window: 1Y of weekly closes needs a hair over 52 weeks of days. */
 const SERIES_WINDOW_DAYS = 371;
 const HI_LO_WINDOW_DAYS = 365;
 
 /**
- * Load everything the feed renders, point-in-time consistent with
- * the latest signal run (all price/insider/news reads are bounded by the run
- * date, mirroring the engine's own no-lookahead discipline in context.ts).
+ * Load everything the feed renders — all views at once — point-in-time
+ * consistent with the latest signal run (all price/insider/news reads are
+ * bounded by the run date, mirroring the engine's own no-lookahead discipline
+ * in context.ts). The surfaced view is the union of fired signals, so the
+ * facet views add only their small per-signal fields on top of data the
+ * union already needs; the heavy per-instrument maps are shared across views.
  * Returns null when no run exists yet.
  */
-export async function loadFeed(
-	db: Db,
-	selectedSlug: FeedViewSlug = DEFAULT_VIEW_SLUG
-): Promise<FeedPayload | null> {
-	const runDate = await latestRunDate(db);
-	if (runDate === null) return null;
-	const [run] = await db.select().from(signalRun).where(eq(signalRun.runDate, runDate));
+export async function loadFeed(db: Db): Promise<FeedPayload | null> {
+	// Latest run + the one before it (for lifecycle) in a single query.
+	const [runs, definitions] = await Promise.all([
+		db.select().from(signalRun).orderBy(desc(signalRun.runDate)).limit(2),
+		db
+			.select({ id: signalDefinition.id, slug: signalDefinition.slug })
+			.from(signalDefinition)
+			.where(inArray(signalDefinition.slug, FEED_VIEWS.map((s) => s.slug)))
+	]);
+	const [run, previousRun] = runs;
 	if (!run) return null;
-	const selectedView = feedViewBySlug(selectedSlug);
-
-	const definitions = await db
-		.select({ id: signalDefinition.id, slug: signalDefinition.slug })
-		.from(signalDefinition)
-		.where(inArray(signalDefinition.slug, FEED_VIEWS.map((s) => s.slug)));
+	const runDate = run.runDate;
 	const definitionIdBySlug = new Map(definitions.map((s) => [s.slug, s.id]));
-	const selectedDefinitionId = definitionIdBySlug.get(selectedSlug);
-	if (selectedDefinitionId === undefined) {
-		return {
-			runDate,
-			universeSize: run.universeSize,
-			view: selectedView,
-			views: [...FEED_VIEWS],
-			cards: []
-		};
+	const slugByDefinitionId = new Map(definitions.map((s) => [s.id, s.slug as FeedViewSlug]));
+	const feedDefinitionIds = [...definitionIdBySlug.values()];
+
+	const emptyPayload = (): FeedPayload => ({
+		runDate,
+		universeSize: run.universeSize,
+		views: [...FEED_VIEWS],
+		cardsByView: buildCardsByView(() => [])
+	});
+	if (feedDefinitionIds.length === 0) return emptyPayload();
+
+	// Current passers for every view plus the previous run's severities.
+	const [passerRows, previousRows] = await Promise.all([
+		db
+			.select({
+				definitionId: signal.definitionId,
+				instrumentId: signal.instrumentId,
+				issuerId: instrument.issuerId,
+				rank: signal.rank,
+				score: signal.score,
+				rationale: signal.rationale,
+				isin: instrument.isin,
+				wkn: instrument.wkn,
+				name: issuer.name,
+				sector: issuer.sector
+			})
+			.from(signal)
+			.innerJoin(instrument, eq(instrument.id, signal.instrumentId))
+			.innerJoin(issuer, eq(issuer.id, instrument.issuerId))
+			.where(
+				and(
+					eq(signal.runId, run.id),
+					inArray(signal.definitionId, feedDefinitionIds),
+					eq(signal.passedGate, true)
+				)
+			)
+			.orderBy(signal.definitionId, signal.rank),
+		previousRun === undefined
+			? Promise.resolve([])
+			: db
+					.select({
+						definitionId: signal.definitionId,
+						instrumentId: signal.instrumentId,
+						score: signal.score
+					})
+					.from(signal)
+					.where(
+						and(
+							eq(signal.runId, previousRun.id),
+							inArray(signal.definitionId, feedDefinitionIds),
+							eq(signal.passedGate, true)
+						)
+					)
+	]);
+	const hasPreviousRun = previousRun !== undefined;
+	const previousScoresByDefinition = new Map<number, Map<number, number | null>>();
+	for (const row of previousRows) {
+		const scores = previousScoresByDefinition.get(row.definitionId) ?? new Map();
+		scores.set(row.instrumentId, row.score === null ? null : Number(row.score));
+		previousScoresByDefinition.set(row.definitionId, scores);
 	}
 
-	const passerRows = await db
-		.select({
-			instrumentId: signal.instrumentId,
-			issuerId: instrument.issuerId,
-			rank: signal.rank,
-			score: signal.score,
-			rationale: signal.rationale,
-			isin: instrument.isin,
-			wkn: instrument.wkn,
-			name: issuer.name,
-			sector: issuer.sector
-		})
-		.from(signal)
-		.innerJoin(instrument, eq(instrument.id, signal.instrumentId))
-		.innerJoin(issuer, eq(issuer.id, instrument.issuerId))
-		.where(
-			and(eq(signal.runId, run.id), eq(signal.definitionId, selectedDefinitionId), eq(signal.passedGate, true))
-		)
-		.orderBy(signal.rank);
-	const previousScores = await previousRunScores(db, runDate, selectedDefinitionId);
-	const passers: PasserRow[] = passerRows.map((r) => {
+	const passersBySlug = new Map<FeedViewSlug, PasserRow[]>(FEED_VIEWS.map((v) => [v.slug, []]));
+	for (const r of passerRows) {
+		const slug = slugByDefinitionId.get(r.definitionId);
+		if (slug === undefined) continue;
 		const severity = r.score === null ? null : Number(r.score);
-		return {
+		const previousScores = previousScoresByDefinition.get(r.definitionId);
+		passersBySlug.get(slug)?.push({
 			instrumentId: r.instrumentId,
 			issuerId: r.issuerId,
 			rank: r.rank ?? 0,
@@ -104,26 +144,23 @@ export async function loadFeed(
 			wkn: r.wkn,
 			name: r.name,
 			sector: r.sector,
-			reasons: reasonsFor(selectedSlug, severity, r.rationale),
-			lifecycle: lifecycleFor(severity, previousScores?.get(r.instrumentId) ?? null, previousScores !== null)
-		};
-	});
-	if (passers.length === 0) {
-		return {
-			runDate,
-			universeSize: run.universeSize,
-			view: selectedView,
-			views: [...FEED_VIEWS],
-			cards: []
-		};
+			reasons: reasonsFor(slug, severity, r.rationale),
+			lifecycle: lifecycleFor(severity, previousScores?.get(r.instrumentId) ?? null, hasPreviousRun)
+		});
 	}
+	if (passerRows.length === 0) return emptyPayload();
 
-	const instrumentIds = passers.map((p) => p.instrumentId);
-	const issuerIds = [...new Set(passers.map((p) => p.issuerId))];
+	const instrumentIds = [...new Set(passerRows.map((p) => p.instrumentId))];
+	const issuerIds = [...new Set(passerRows.map((p) => p.issuerId))];
 
-	const [valuation, marketCap, series, latest, insiders, news] = await Promise.all([
-		loadValuation(db, run.id, definitionIdBySlug.get(RELATIVE_VALUE_SLUG), instrumentIds),
-		loadMarketCap(db, run.id, definitionIdBySlug.get(INSIDER_CONVICTION_SLUG), instrumentIds),
+	const [enrichment, series, latest, insiders, news] = await Promise.all([
+		loadSignalEnrichment(
+			db,
+			run.id,
+			definitionIdBySlug.get(RELATIVE_VALUE_SLUG),
+			definitionIdBySlug.get(INSIDER_CONVICTION_SLUG),
+			instrumentIds
+		),
 		loadWeeklySeries(db, instrumentIds, runDate),
 		loadLatestPrices(db, instrumentIds, runDate),
 		loadInsiders(db, issuerIds, runDate),
@@ -133,9 +170,18 @@ export async function loadFeed(
 	return {
 		runDate,
 		universeSize: run.universeSize,
-		view: selectedView,
 		views: [...FEED_VIEWS],
-		cards: assembleCards(passers, valuation, marketCap, series, latest, insiders, news)
+		cardsByView: buildCardsByView((slug) =>
+			assembleCards(
+				passersBySlug.get(slug) ?? [],
+				enrichment.valuation,
+				enrichment.marketCap,
+				series,
+				latest,
+				insiders,
+				news
+			)
+		)
 	};
 }
 
@@ -167,66 +213,50 @@ function lifecycleFor(
 	return 'persisting';
 }
 
-/** Fired-signal severities of the previous run's same view (null = no previous run). */
-async function previousRunScores(
-	db: Db,
-	runDate: string,
-	definitionId: number
-): Promise<Map<number, number | null> | null> {
-	const [previous] = await db
-		.select({ id: signalRun.id })
-		.from(signalRun)
-		.where(lt(signalRun.runDate, runDate))
-		.orderBy(desc(signalRun.runDate))
-		.limit(1);
-	if (!previous) return null;
-	const rows = await db
-		.select({ instrumentId: signal.instrumentId, score: signal.score })
-		.from(signal)
-		.where(
-			and(eq(signal.runId, previous.id), eq(signal.definitionId, definitionId), eq(signal.passedGate, true))
-		);
-	return new Map(rows.map((r) => [r.instrumentId, r.score === null ? null : Number(r.score)]));
-}
-
-async function loadValuation(
+/**
+ * Card enrichment mined from signal rationales (valuation from relative-value
+ * rows, market cap from insider-conviction rows), gate-independent so cards in
+ * every view can show them. One query for both definitions.
+ */
+async function loadSignalEnrichment(
 	db: Db,
 	runId: number,
-	definitionId: number | undefined,
+	valuationDefinitionId: number | undefined,
+	marketCapDefinitionId: number | undefined,
 	instrumentIds: number[]
-): Promise<Map<number, RelativeValueView>> {
-	if (definitionId === undefined) return new Map();
+): Promise<{
+	valuation: Map<number, RelativeValueView>;
+	marketCap: Map<number, number | null>;
+}> {
+	const valuation = new Map<number, RelativeValueView>();
+	const marketCap = new Map<number, number | null>();
+	const definitionIds = [valuationDefinitionId, marketCapDefinitionId].filter(
+		(id): id is number => id !== undefined
+	);
+	if (definitionIds.length === 0) return { valuation, marketCap };
 	const rows = await db
-		.select({ instrumentId: signal.instrumentId, rationale: signal.rationale })
+		.select({
+			definitionId: signal.definitionId,
+			instrumentId: signal.instrumentId,
+			rationale: signal.rationale
+		})
 		.from(signal)
 		.where(
 			and(
 				eq(signal.runId, runId),
-				eq(signal.definitionId, definitionId),
+				inArray(signal.definitionId, definitionIds),
 				inArray(signal.instrumentId, instrumentIds)
 			)
 		);
-	return new Map(rows.map((r) => [r.instrumentId, parseRelativeValueRationale(r.rationale)]));
-}
-
-async function loadMarketCap(
-	db: Db,
-	runId: number,
-	definitionId: number | undefined,
-	instrumentIds: number[]
-): Promise<Map<number, number | null>> {
-	if (definitionId === undefined) return new Map();
-	const rows = await db
-		.select({ instrumentId: signal.instrumentId, rationale: signal.rationale })
-		.from(signal)
-		.where(
-			and(
-				eq(signal.runId, runId),
-				eq(signal.definitionId, definitionId),
-				inArray(signal.instrumentId, instrumentIds)
-			)
-		);
-	return new Map(rows.map((r) => [r.instrumentId, parseMarketCap(r.rationale)]));
+	for (const r of rows) {
+		if (r.definitionId === valuationDefinitionId) {
+			valuation.set(r.instrumentId, parseRelativeValueRationale(r.rationale));
+		}
+		if (r.definitionId === marketCapDefinitionId) {
+			marketCap.set(r.instrumentId, parseMarketCap(r.rationale));
+		}
+	}
+	return { valuation, marketCap };
 }
 
 /** Trailing ~1Y of closes downsampled to one point per ISO week (last close wins). */
