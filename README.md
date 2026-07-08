@@ -71,6 +71,25 @@ responses only — no SSE): `surface_latest` returns the surfaced feed of a
 signal run (strongest first, with per-row `reasons`), and one read-only
 facet tool per component signal (`signal_<slug>`) returns that signal's
 fired rows, all as structured output.
+
+Every row is enriched query-time (bounded by the run date, no lookahead):
+per-insider dealing detail (name, role, role weight, dates, prices,
+`dealingType` at the granularity the BaFin CSV offers — open-market
+purchase / sale / settlement-or-award — plus whether the dealing counted
+toward severity), a point-in-time fundamentals snapshot (price, YTD
+return, 52-week range, market cap, *trailing* P/E, dividend yield —
+forward P/E and analyst consensus have no data source), every signal's
+severity sub-components with gate flags (`components`, null-degrading on
+rows from older engine versions), a 30-day news summary with the latest
+headlines, and `superSector`/`sectorPeersFiring` (how many peers of the
+same super-sector fired the same signal — a crowded sector is usually a
+macro flag, not a stock-picker's edge).
+
+`issuer_detail(isin, runDate?)` is the drill-down for one instrument:
+~24 months of monthly closes, EPS/market-cap/dividend history, the stored
+directors'-dealings record (max 50, reaching back as far as ingestion
+does), per-insider follow-through (prior counted buys with the ~91-day
+forward return after each) and recent headlines.
 Requests must send `Accept: application/json, text/event-stream`
 (spec-mandated even though responses are plain JSON). Sessions are
 server-minted via `Mcp-Session-Id` on `initialize` (in-memory, 30 min
