@@ -125,8 +125,10 @@ jobs:
       env:
         TRIVY_USERNAME: ${{ github.actor }}
         TRIVY_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
+        TRIVY_PLATFORM: linux/arm64
+        TRIVY_IMAGE_SRC: remote
       with:
-        image-ref: ${{ fromJSON(steps.meta.outputs.json).tags[0] }}
+        image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build.outputs.digest }}
         format: 'sarif'
         output: 'trivy-results.sarif'
 
