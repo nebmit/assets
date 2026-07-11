@@ -53,6 +53,8 @@ export const instrument = pgTable(
 		ticker: text('ticker'),
 		market: text('market').notNull().default('XETR'),
 		currency: text('currency'),
+		/** Earliest date successfully requested from the XETR price-history endpoint. */
+		priceHistoryCoveredFrom: date('price_history_covered_from'),
 		firstSeen: date('first_seen').notNull(),
 		lastSeen: date('last_seen').notNull()
 	},

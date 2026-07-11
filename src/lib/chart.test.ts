@@ -56,6 +56,15 @@ describe('sliceByRange', () => {
 		expect(sliceByRange(series, '6M', '2026-07-01').map((p) => p.close)).toEqual([110, 120, 130]);
 		expect(sliceByRange(series, '1Y', '2026-07-01')).toHaveLength(4);
 	});
+
+	it('uses an exact calendar cutoff for the three-year range', () => {
+		const longSeries: PricePoint[] = [
+			{ date: '2023-06-30', close: 90 },
+			{ date: '2023-07-01', close: 100 },
+			{ date: '2026-07-01', close: 130 }
+		];
+		expect(sliceByRange(longSeries, '3Y', '2026-07-01')).toEqual(longSeries.slice(1));
+	});
 });
 
 describe('rangeChangePct', () => {

@@ -41,12 +41,12 @@ const descriptions: Record<string, string> = {
 
 /** LLM-facing description of the per-issuer drill-down tool. */
 export const ISSUER_DETAIL_DESCRIPTION =
-	'Historical drill-down for one instrument by ISIN: ~24 months of monthly closes, EPS / market-cap ' +
+	'Historical drill-down for one instrument by ISIN: ~36 months of monthly closes, EPS / market-cap ' +
 	'/ dividend history (the shape separates "earnings genuinely recovered" from "the multiple ' +
 	'deflated"), the stored directors’-dealings record with per-insider follow-through (has this ' +
 	'person bought before, and what did the price do afterwards?), and recent headlines. All data is ' +
 	'bounded by the run date (no lookahead) and reaches back only as far as ingestion does: prices ' +
-	'~2 years, dealings accumulate beyond BaFin’s rolling 12-month export over time. Works for any ' +
+	'~3 years, dealings accumulate beyond BaFin’s rolling 12-month export over time. Works for any ' +
 	'universe instrument, surfaced or not.';
 
 /** Appended to every tool: results are personalized by the account's ignore list. */

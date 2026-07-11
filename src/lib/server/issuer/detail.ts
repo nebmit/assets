@@ -4,18 +4,17 @@ import { toDealingView, type InsiderDealingView } from '../mcp/enrich.js';
 import { METRICS } from '../fundamentals/metrics.js';
 import { superSector } from '../signals/sectors.js';
 import { addDays } from '../util.js';
+import { subtractYears } from '../../date.js';
 
 /**
  * Drill-down payload behind the `issuer_detail` MCP tool: the history that is
  * too heavy for the per-row feed — price and fundamentals trajectories, the
  * full stored insider record and per-party follow-through. All reads are
  * bounded by the run date (no lookahead). History goes back only as far as
- * ingestion does: prices ~2 years, dealings accumulate beyond BaFin's rolling
+ * ingestion does: prices ~3 years, dealings accumulate beyond BaFin's rolling
  * 12-month export the longer the pipeline runs.
  */
 
-/** ~24 months of closes with a little slack for the monthly downsample. */
-const SERIES_WINDOW_DAYS = 740;
 const INSIDER_HISTORY_LIMIT = 50;
 const NEWS_LIMIT = 10;
 /** Follow-through horizon: forward return measured ~3 months after a buy. */
@@ -55,7 +54,7 @@ export interface IssuerDetail {
 	sector: string | null;
 	superSector: string | null;
 	runDate: string;
-	/** Last close per calendar month, ascending, ~24 months. */
+	/** Last close per calendar month, ascending, ~36 months. */
 	monthlyCloses: PricePoint[];
 	epsBasicHistory: MetricPoint[];
 	marketCapHistory: MetricPoint[];
@@ -140,7 +139,7 @@ export async function issuerDetail(db: Db, isin: string, runDate: string): Promi
 			select trade_date, close
 			from eod_price
 			where instrument_id = ${target.instrument_id}
-				and trade_date <= ${runDate} and trade_date > ${addDays(runDate, -SERIES_WINDOW_DAYS)}
+				and trade_date <= ${runDate} and trade_date >= ${subtractYears(runDate, 3)}
 			order by trade_date
 		`) as unknown as Promise<{ trade_date: string; close: string }[]>,
 		db.execute(sql`

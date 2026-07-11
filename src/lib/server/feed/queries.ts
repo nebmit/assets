@@ -3,6 +3,7 @@ import { sql } from 'drizzle-orm';
 import type { Db } from '../db/index.js';
 import { instrument, issuer, signal, signalDefinition, signalRun } from '../db/schema.js';
 import { addDays } from '../util.js';
+import { subtractYears } from '../../date.js';
 import { DEFAULT_VIEW_SLUG, FEED_VIEWS, type FeedViewSlug } from '../../feed/views.js';
 import type {
 	CardData,
@@ -42,8 +43,6 @@ function buildCardsByView(
 	return out;
 }
 
-/** Series window: 1Y of weekly closes needs a hair over 52 weeks of days. */
-const SERIES_WINDOW_DAYS = 371;
 const HI_LO_WINDOW_DAYS = 365;
 
 /**
@@ -259,7 +258,7 @@ async function loadSignalEnrichment(
 	return { valuation, marketCap };
 }
 
-/** Trailing ~1Y of closes downsampled to one point per ISO week (last close wins). */
+/** Trailing three calendar years of closes, one point per ISO week (last close wins). */
 async function loadWeeklySeries(
 	db: Db,
 	instrumentIds: number[],
@@ -271,7 +270,7 @@ async function loadWeeklySeries(
 		from eod_price
 		where instrument_id in (${idList(instrumentIds)})
 			and trade_date <= ${runDate}
-			and trade_date > ${addDays(runDate, -SERIES_WINDOW_DAYS)}
+			and trade_date >= ${subtractYears(runDate, 3)}
 		order by instrument_id, date_trunc('week', trade_date), trade_date desc
 	`)) as unknown as { instrument_id: number; trade_date: string; close: string }[];
 

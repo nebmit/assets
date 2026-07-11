@@ -43,6 +43,13 @@
       "when": 1783495068402,
       "tag": "0005_cheerful_scarlet_spider",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1783760114364,
+      "tag": "0006_pale_kid_colt",
+      "breakpoints": true
     }
   ]
 }

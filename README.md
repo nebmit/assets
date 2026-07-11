@@ -25,7 +25,7 @@ positioning and scope.
 | Data | Source | Notes |
 |---|---|---|
 | Index constituents, master data | api.boerse-frankfurt.de | Undocumented JSON API; tracing-header handshake in `sources/boerseFrankfurt/client.ts` |
-| EOD prices (XETR) | api.boerse-frankfurt.de | ~2y `price_history` backfill for new instruments; daily closes come from the snapshot |
+| EOD prices (XETR) | api.boerse-frankfurt.de | 3y `price_history` backfill for current instruments; daily closes come from the snapshot |
 | Fundamentals bootstrap + daily closes (EPS, market cap, dividend, prev close) | api.boerse-frankfurt.de | `equity_search` snapshot, one request per index per day; ESEF/Unternehmensregister parser is a later milestone |
 | Insider transactions (Art. 19 MAR) | BaFin DealingsInfo | Full rolling 12-month CSV export per run, natural-key dedupe |
 
@@ -86,7 +86,7 @@ same super-sector fired the same signal — a crowded sector is usually a
 macro flag, not a stock-picker's edge).
 
 `issuer_detail(isin, runDate?)` is the drill-down for one instrument:
-~24 months of monthly closes, EPS/market-cap/dividend history, the stored
+~36 months of monthly closes, EPS/market-cap/dividend history, the stored
 directors'-dealings record (max 50, reaching back as far as ingestion
 does), per-insider follow-through (prior counted buys with the ~91-day
 forward return after each) and recent headlines.

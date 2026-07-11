@@ -224,7 +224,7 @@ const detailOutputSchema = {
 	runDate: z.string().describe('All history is bounded by this date (no lookahead)'),
 	monthlyCloses: z
 		.array(z.object({ date: z.string(), close: z.number() }))
-		.describe('Last close per calendar month, ascending, ~24 months'),
+		.describe('Last close per calendar month, ascending, ~36 months'),
 	epsBasicHistory: z.array(metricPoint).describe('Basic EPS history (shape shows recovery vs re-rating)'),
 	marketCapHistory: z.array(metricPoint),
 	dividendPerShareHistory: z.array(metricPoint),

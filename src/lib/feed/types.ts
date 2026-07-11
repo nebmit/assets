@@ -8,7 +8,7 @@ import type { FeedViewOption, FeedViewSlug } from './views.js';
 export type PartyRole = 'executive_board' | 'supervisory_board' | 'related_party' | 'other';
 export type TransactionSide = 'buy' | 'sell' | 'other';
 
-/** One point of the (weekly-downsampled) trailing price series. */
+/** One point of the weekly-downsampled trailing three-year price series. */
 export interface PricePoint {
 	/** ISO date (yyyy-mm-dd) of the sampled close. */
 	date: string;
@@ -61,7 +61,7 @@ export interface CardData {
 	/** Latest EOD close ≤ run date. */
 	price: number | null;
 	priceDate: string | null;
-	/** Trailing ~1Y weekly closes, ascending by date. */
+	/** Trailing three calendar years of weekly closes, ascending by date. */
 	series: PricePoint[];
 	hi52: number | null;
 	lo52: number | null;

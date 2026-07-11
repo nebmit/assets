@@ -1,3 +1,4 @@
+import { subtractYears } from './date.js';
 import type { PricePoint } from './feed/types.js';
 
 /**
@@ -5,11 +6,16 @@ import type { PricePoint } from './feed/types.js';
  * the hover-scrub overlay so guideline/dot land exactly on the drawn line.
  */
 
-export type ChartRange = '1M' | '3M' | '6M' | '1Y';
+export type ChartRange = '1M' | '3M' | '6M' | '1Y' | '3Y';
 
-export const CHART_RANGES: readonly ChartRange[] = ['1M', '3M', '6M', '1Y'];
+export const CHART_RANGES: readonly ChartRange[] = ['1M', '3M', '6M', '1Y', '3Y'];
 
-const RANGE_DAYS: Record<ChartRange, number> = { '1M': 30, '3M': 91, '6M': 182, '1Y': 365 };
+const RANGE_DAYS: Record<Exclude<ChartRange, '3Y'>, number> = {
+	'1M': 30,
+	'3M': 91,
+	'6M': 182,
+	'1Y': 365
+};
 
 export interface SparkGeometry {
 	/** Pixel coordinates of each data point, in order. */
@@ -58,7 +64,10 @@ export function nearestIndex(x: number, width: number, count: number): number {
 
 /** Trailing window of the series for a display range, cut by date relative to `asOf`. */
 export function sliceByRange(series: PricePoint[], range: ChartRange, asOf: string): PricePoint[] {
-	const cutoff = Date.parse(asOf) - RANGE_DAYS[range] * 86_400_000;
+	const cutoff =
+		range === '3Y'
+			? Date.parse(subtractYears(asOf, 3))
+			: Date.parse(asOf) - RANGE_DAYS[range] * 86_400_000;
 	return series.filter((p) => Date.parse(p.date) >= cutoff);
 }
 
