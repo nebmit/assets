@@ -45,7 +45,7 @@ export async function buildContext(db: Db, runDate: string): Promise<UniverseCon
 		select distinct on (issuer_id, metric) issuer_id, metric, value
 		from fundamental
 		where published_date <= ${runDate}
-			and metric in (${METRICS.epsBasic}, ${METRICS.marketCap}, ${METRICS.dividendPerShare})
+			and metric in (${METRICS.epsBasic}, ${METRICS.marketCap}, ${METRICS.dividendPerShare}, ${METRICS.priceToBook})
 		order by issuer_id, metric, published_date desc, period_end desc
 	`)) as unknown as { issuer_id: number; metric: string; value: string }[];
 	const fundamentalByIssuer = new Map<string, number>();
@@ -118,6 +118,7 @@ export async function buildContext(db: Db, runDate: string): Promise<UniverseCon
 			epsBasic: fundamentalByIssuer.get(`${m.issuer_id}:${METRICS.epsBasic}`) ?? null,
 			marketCap: fundamentalByIssuer.get(`${m.issuer_id}:${METRICS.marketCap}`) ?? null,
 			dividendPerShare: fundamentalByIssuer.get(`${m.issuer_id}:${METRICS.dividendPerShare}`) ?? null,
+			priceToBook: fundamentalByIssuer.get(`${m.issuer_id}:${METRICS.priceToBook}`) ?? null,
 			return3m: returnFrom(base3m),
 			return6m: returnFrom(base6m),
 			drawdown52w:

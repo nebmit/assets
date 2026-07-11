@@ -22,10 +22,11 @@ describe('parseRelativeValueRationale', () => {
 				close_date: '2026-07-01',
 				eps_basic: 5.84,
 				pe: 42.1,
+				price_book: 5.2,
 				peer_group: 'Software',
 				peer_median_pe: 28.4
 			})
-		).toEqual({ close: 245.8, eps: 5.84, pe: 42.1, peerMedianPe: 28.4 });
+		).toEqual({ close: 245.8, eps: 5.84, pe: 42.1, pb: 5.2, peerMedianPe: 28.4 });
 	});
 
 	it('degrades malformed or partial rationale to nulls, never throws', () => {
@@ -33,18 +34,21 @@ describe('parseRelativeValueRationale', () => {
 			close: null,
 			eps: null,
 			pe: null,
+			pb: null,
 			peerMedianPe: null
 		});
 		expect(parseRelativeValueRationale({ pe: 'not a number', close: 12 })).toEqual({
 			close: 12,
 			eps: null,
 			pe: null,
+			pb: null,
 			peerMedianPe: null
 		});
 		expect(parseRelativeValueRationale('garbage')).toEqual({
 			close: null,
 			eps: null,
 			pe: null,
+			pb: null,
 			peerMedianPe: null
 		});
 	});
@@ -81,7 +85,7 @@ describe('assembleCards', () => {
 	it('merges all sources and derives the P/E delta', () => {
 		const [card] = assembleCards(
 			[passer],
-			new Map([[1, { close: 245.8, eps: 5.84, pe: 42.1, peerMedianPe: 28.4 }]]),
+			new Map([[1, { close: 245.8, eps: 5.84, pe: 42.1, pb: 5.2, peerMedianPe: 28.4 }]]),
 			new Map([[1, 2.9e11]]),
 			new Map([[1, [{ date: '2026-06-22', close: 240 }]]]),
 			new Map([[1, { close: 245.8, tradeDate: '2026-07-01', hi52: 250, lo52: 180 }]]),
@@ -93,6 +97,7 @@ describe('assembleCards', () => {
 		expect(card.lifecycle).toBe('new');
 		expect(card.price).toBe(245.8);
 		expect(card.peDeltaPct).toBeCloseTo(48.24, 2);
+		expect(card.pb).toBe(5.2);
 		expect(card.marketCap).toBe(2.9e11);
 		expect(card.insiders).toHaveLength(1);
 		expect(card.news[0].newsType).toBe('Ad-hoc');
@@ -115,6 +120,7 @@ describe('assembleCards', () => {
 			hi52: null,
 			pe: null,
 			peDeltaPct: null,
+			pb: null,
 			eps: null,
 			marketCap: null,
 			insiders: [],
@@ -125,7 +131,7 @@ describe('assembleCards', () => {
 	it('falls back to the rationale close when no price rows exist and guards a zero median', () => {
 		const [card] = assembleCards(
 			[passer],
-			new Map([[1, { close: 245.8, eps: null, pe: 42.1, peerMedianPe: 0 }]]),
+			new Map([[1, { close: 245.8, eps: null, pe: 42.1, pb: null, peerMedianPe: 0 }]]),
 			new Map(),
 			new Map(),
 			new Map(),

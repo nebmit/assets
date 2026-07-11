@@ -31,6 +31,7 @@ describe('evaluateSignals surfaced feed', () => {
 			epsBasic: 10,
 			marketCap: 1e9,
 			dividendPerShare: null,
+			priceToBook: null,
 			return3m: null,
 			return6m: null,
 			drawdown52w: null,

@@ -14,7 +14,8 @@ export const equitySearchRow = z.object({
 		.object({
 			earningsPerShareBasic: z.number().nullish(),
 			marketCapitalisation: z.number().nullish(),
-			dividendPerShare: z.number().nullish()
+			dividendPerShare: z.number().nullish(),
+			priceBookRatio: z.number().nullish()
 		})
 		.nullish(),
 	overview: z

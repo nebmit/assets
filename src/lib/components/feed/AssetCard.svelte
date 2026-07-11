@@ -216,6 +216,21 @@
 				class="flex items-baseline gap-[7px] md:mt-3 md:border-t md:border-border-subtle md:pt-[11px]"
 			>
 				<TermHelp
+					term={FINANCIAL_TERMS.pb.term}
+					definition={FINANCIAL_TERMS.pb.definition}
+					clarification={FINANCIAL_TERMS.pb.clarification}
+					align="right"
+				>
+					<span class="micro-label">P / B</span>
+				</TermHelp>
+				<span class="font-mono text-sm font-medium tabular-nums">
+					{card.pb === null ? '—' : formatRatio(card.pb)}
+				</span>
+			</div>
+			<div
+				class="flex items-baseline gap-[7px] md:mt-3 md:border-t md:border-border-subtle md:pt-[11px]"
+			>
+				<TermHelp
 					term={FINANCIAL_TERMS.eps.term}
 					definition={FINANCIAL_TERMS.eps.definition}
 					align="right"

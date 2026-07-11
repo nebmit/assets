@@ -69,6 +69,8 @@ export interface CardData {
 	peerMedianPe: number | null;
 	/** (pe − peer median) / peer median × 100; positive = premium (a caution, not a gain). */
 	peDeltaPct: number | null;
+	/** Price-to-book, provider-supplied (Börse Frankfurt). */
+	pb: number | null;
 	/** Basic EPS (ttm), EUR. */
 	eps: number | null;
 	/** Market capitalization, EUR. */

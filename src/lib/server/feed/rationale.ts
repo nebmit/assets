@@ -15,6 +15,7 @@ const relativeValueRationale = z.object({
 	close: numberOrNull.default(null),
 	eps_basic: numberOrNull.default(null),
 	pe: numberOrNull.default(null),
+	price_book: numberOrNull.default(null),
 	peer_median_pe: numberOrNull.default(null)
 });
 
@@ -22,16 +23,18 @@ export interface RelativeValueView {
 	close: number | null;
 	eps: number | null;
 	pe: number | null;
+	pb: number | null;
 	peerMedianPe: number | null;
 }
 
 export function parseRelativeValueRationale(raw: unknown): RelativeValueView {
 	const parsed = relativeValueRationale.safeParse(raw ?? {});
-	if (!parsed.success) return { close: null, eps: null, pe: null, peerMedianPe: null };
+	if (!parsed.success) return { close: null, eps: null, pe: null, pb: null, peerMedianPe: null };
 	return {
 		close: parsed.data.close,
 		eps: parsed.data.eps_basic,
 		pe: parsed.data.pe,
+		pb: parsed.data.price_book,
 		peerMedianPe: parsed.data.peer_median_pe
 	};
 }

@@ -51,6 +51,8 @@ interface DemoCompany {
 	marketCap: number;
 	/** Dividend per share (EUR); feeds the value signal's yield bonus. */
 	dividend?: number;
+	/** Price-to-book ratio (provider-supplied); rendered on the card. */
+	priceBook?: number;
 	drift: number;
 	seed: number;
 	insiders: DemoInsider[];
@@ -61,7 +63,7 @@ const COMPANIES: DemoCompany[] = [
 	{
 		// Insider cluster (2 buyers in window) at a rich P/E: insider-only surface.
 		name: 'SAP SE', sector: 'Software', isin: 'DE0007164600', wkn: '716460', ticker: 'SAP',
-		price: 245.8, eps: 5.84, marketCap: 2.87e11, dividend: 2.2, drift: 0.0009, seed: 7,
+		price: 245.8, eps: 5.84, marketCap: 2.87e11, dividend: 2.2, priceBook: 5.2, drift: 0.0009, seed: 7,
 		insiders: [
 			{ daysAgo: 19, who: 'Julia White', role: 'supervisory_board', side: 'buy', amount: 1_240_000 },
 			{ daysAgo: 27, who: 'C. Klein', role: 'executive_board', side: 'buy', amount: 2_800_000 },
@@ -75,7 +77,7 @@ const COMPANIES: DemoCompany[] = [
 	},
 	{
 		name: 'Rheinmetall AG', sector: 'Defense', isin: 'DE0007030009', wkn: '703000', ticker: 'RHM',
-		price: 498.2, eps: 14.4, marketCap: 2.2e10, drift: 0.0028, seed: 20,
+		price: 498.2, eps: 14.4, marketCap: 2.2e10, priceBook: 8.1, drift: 0.0028, seed: 20,
 		insiders: [
 			{ daysAgo: 28, who: 'A. Müller', role: 'executive_board', side: 'buy', amount: 820_000 },
 			{ daysAgo: 35, who: 'A. Papperger', role: 'executive_board', side: 'buy', amount: 3_100_000 },
@@ -88,7 +90,7 @@ const COMPANIES: DemoCompany[] = [
 	},
 	{
 		name: 'Siemens AG', sector: 'Industrials', isin: 'DE0007236101', wkn: '723610', ticker: 'SIE',
-		price: 182.4, eps: 9.21, marketCap: 1.44e11, drift: 0.0006, seed: 33,
+		price: 182.4, eps: 9.21, marketCap: 1.44e11, priceBook: 3.4, drift: 0.0006, seed: 33,
 		insiders: [
 			{ daysAgo: 12, who: 'R. Busch', role: 'executive_board', side: 'buy', amount: 2_100_000 },
 			{ daysAgo: 22, who: 'R. Thomas', role: 'executive_board', side: 'sell', amount: 900_000 },
@@ -102,7 +104,7 @@ const COMPANIES: DemoCompany[] = [
 	{
 		// Material exec buy AND a deep discount with a fat yield: noisy-or showcase.
 		name: 'Allianz SE', sector: 'Insurance', isin: 'DE0008404005', wkn: '840400', ticker: 'ALV',
-		price: 298.6, eps: 24.08, marketCap: 1.16e11, dividend: 13.8, drift: 0.0004, seed: 46,
+		price: 298.6, eps: 24.08, marketCap: 1.16e11, dividend: 13.8, priceBook: 1.6, drift: 0.0004, seed: 46,
 		insiders: [
 			{ daysAgo: 9, who: 'C. Bahr', role: 'executive_board', side: 'buy', amount: 1_900_000 },
 			{ daysAgo: 53, who: 'O. Bäte', role: 'executive_board', side: 'sell', amount: 1_600_000 },
@@ -115,7 +117,7 @@ const COMPANIES: DemoCompany[] = [
 	},
 	{
 		name: 'Deutsche Telekom AG', sector: 'Telecom', isin: 'DE0005557508', wkn: '555750', ticker: 'DTE',
-		price: 28.94, eps: 1.79, marketCap: 1.41e11, dividend: 0.77, drift: 0.0007, seed: 59,
+		price: 28.94, eps: 1.79, marketCap: 1.41e11, dividend: 0.77, priceBook: 2.4, drift: 0.0007, seed: 59,
 		insiders: [
 			{ daysAgo: 25, who: 'T. Höttges', role: 'executive_board', side: 'buy', amount: 540_000 },
 			{ daysAgo: 32, who: 'C. Illek', role: 'executive_board', side: 'buy', amount: 380_000 },
@@ -128,7 +130,7 @@ const COMPANIES: DemoCompany[] = [
 	},
 	{
 		name: 'Infineon Technologies AG', sector: 'Semiconductors', isin: 'DE0006231004', wkn: '623100', ticker: 'IFX',
-		price: 33.18, eps: 1.34, marketCap: 4.3e10, drift: -0.0005, seed: 72,
+		price: 33.18, eps: 1.34, marketCap: 4.3e10, priceBook: 0.9, drift: -0.0005, seed: 72,
 		insiders: [
 			{ daysAgo: 16, who: 'J. Hanebeck', role: 'executive_board', side: 'buy', amount: 310_000 },
 			{ daysAgo: 24, who: 'S. Schulz', role: 'executive_board', side: 'buy', amount: 220_000 },
@@ -142,7 +144,7 @@ const COMPANIES: DemoCompany[] = [
 	{
 		// No insider activity — surfaces via the value signal alone (union, not intersection).
 		name: 'BASF SE', sector: 'Chemicals', isin: 'DE000BASF111', wkn: 'BASF11', ticker: 'BAS',
-		price: 44.6, eps: 3.1, marketCap: 4.0e10, dividend: 2.25, drift: 0.0002, seed: 85,
+		price: 44.6, eps: 3.1, marketCap: 4.0e10, dividend: 2.25, priceBook: 1.2, drift: 0.0002, seed: 85,
 		insiders: [],
 		news: [{ daysAgo: 15, type: 'Corporate', headline: 'Verbund site efficiency program on track' }]
 	},
@@ -158,7 +160,7 @@ const COMPANIES: DemoCompany[] = [
 	{
 		// Token €6k courtesy buy: below the materiality floor, must NOT surface.
 		name: 'Nemetschek SE', sector: 'Software', isin: 'DE0006452907', wkn: '645290', ticker: 'NEM',
-		price: 92.0, eps: 2.1, marketCap: 1.06e10, drift: 0.0005, seed: 111,
+		price: 92.0, eps: 2.1, marketCap: 1.06e10, priceBook: 1.8, drift: 0.0005, seed: 111,
 		insiders: [
 			{ daysAgo: 8, who: 'L. Kaltner', role: 'supervisory_board', side: 'buy', amount: 6_000 }
 		],
@@ -267,6 +269,19 @@ async function main(): Promise<void> {
 							currency: 'EUR',
 							periodEnd: isoDaysAgo(120),
 							publishedDate: isoDaysAgo(100),
+							source: 'boerse_frankfurt' as const
+						}
+					]),
+			...(company.priceBook === undefined
+				? []
+				: [
+						{
+							issuerId: iss.id,
+							metric: 'price_book',
+							value: String(company.priceBook),
+							currency: 'EUR',
+							periodEnd: isoDaysAgo(30),
+							publishedDate: isoDaysAgo(30),
 							source: 'boerse_frankfurt' as const
 						}
 					])

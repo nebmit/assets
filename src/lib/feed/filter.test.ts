@@ -20,6 +20,7 @@ function card(overrides: Partial<CardData>): CardData {
 		pe: null,
 		peerMedianPe: null,
 		peDeltaPct: null,
+		pb: null,
 		eps: null,
 		marketCap: null,
 		insiders: [],

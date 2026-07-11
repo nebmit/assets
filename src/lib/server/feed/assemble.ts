@@ -70,6 +70,7 @@ export function assembleCards(
 			pe,
 			peerMedianPe,
 			peDeltaPct,
+			pb: valuation?.pb ?? null,
 			eps: valuation?.eps ?? null,
 			marketCap: marketCapByInstrument.get(p.instrumentId) ?? null,
 			insiders: insidersByIssuer.get(p.issuerId) ?? [],

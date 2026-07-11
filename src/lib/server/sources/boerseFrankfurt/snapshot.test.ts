@@ -8,7 +8,12 @@ function makeRow(overrides: Partial<EquitySearchRow>): EquitySearchRow {
 	return {
 		isin: 'DE0007164600',
 		name: { originalValue: 'SAP SE' },
-		keyData: { earningsPerShareBasic: 5.83, marketCapitalisation: 1.72e11, dividendPerShare: 2.5 },
+		keyData: {
+			earningsPerShareBasic: 5.83,
+			marketCapitalisation: 1.72e11,
+			dividendPerShare: 2.5,
+			priceBookRatio: 5.2
+		},
 		overview: { lastPrice: 140.88, dateTimeLastPrice: '2026-07-01T19:56:06Z' },
 		...overrides
 	};
@@ -20,7 +25,8 @@ describe('mapSnapshotRow', () => {
 		expect(mapped.fundamentals).toEqual([
 			{ metric: 'eps_basic', value: 5.83 },
 			{ metric: 'market_cap', value: 1.72e11 },
-			{ metric: 'dividend_per_share', value: 2.5 }
+			{ metric: 'dividend_per_share', value: 2.5 },
+			{ metric: 'price_book', value: 5.2 }
 		]);
 		expect(mapped.close).toEqual({ tradeDate: '2026-07-01', close: 140.88 });
 	});

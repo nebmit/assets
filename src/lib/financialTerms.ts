@@ -32,6 +32,11 @@ export const FINANCIAL_TERMS = {
 		clarification:
 			'Share price divided by earnings per share; this app compares it with the peer-sector median.'
 	},
+	pb: {
+		term: 'P/B',
+		definition: 'Price-to-book ratio',
+		clarification: 'Share price divided by book value per share; below 1 means the market values the company under its net assets.'
+	},
 	eps: {
 		term: 'EPS',
 		definition: 'Earnings per share'

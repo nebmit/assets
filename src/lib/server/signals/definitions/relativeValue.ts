@@ -86,7 +86,7 @@ function peerMedians(ctx: UniverseContext): PeerMedians {
 export const relativeValueSignal: SignalDefinition = {
 	slug: 'relative_value',
 	name: 'Relative Value',
-	version: 2,
+	version: 3,
 	params: {
 		max_pe: MAX_PE,
 		min_sector_peers: MIN_SECTOR_PEERS,
@@ -110,6 +110,7 @@ export const relativeValueSignal: SignalDefinition = {
 			close_date: instrument.closeDate,
 			eps_basic: instrument.epsBasic,
 			pe,
+			price_book: instrument.priceToBook,
 			dividend_yield: dividendYield,
 			return_6m: instrument.return6m
 		};

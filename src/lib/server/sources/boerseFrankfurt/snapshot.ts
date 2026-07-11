@@ -30,6 +30,7 @@ export function mapSnapshotRow(row: EquitySearchRow, runDate: string): SnapshotM
 	push(METRICS.epsBasic, row.keyData?.earningsPerShareBasic);
 	push(METRICS.marketCap, row.keyData?.marketCapitalisation);
 	push(METRICS.dividendPerShare, row.keyData?.dividendPerShare);
+	push(METRICS.priceToBook, row.keyData?.priceBookRatio);
 
 	let close: SnapshotMapping['close'] = null;
 	const price = row.overview?.lastPrice;

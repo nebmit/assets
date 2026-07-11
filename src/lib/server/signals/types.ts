@@ -23,6 +23,8 @@ export interface UniverseInstrument {
 	epsBasic: number | null;
 	marketCap: number | null;
 	dividendPerShare: number | null;
+	/** Price-to-book, supplied directly by the provider (not derived). */
+	priceToBook: number | null;
 	/** Trailing ~3-month price return (vs the closest close ≤ runDate − 91d). */
 	return3m: number | null;
 	/** Trailing ~6-month price return (vs the closest close ≤ runDate − 182d). */
