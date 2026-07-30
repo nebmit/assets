@@ -95,6 +95,115 @@ export async function fetchText(url: string, options: FetchOptions = {}): Promis
 }
 
 /**
+ * Minimal in-memory cookie store for a stateful multi-request flow against a
+ * single host. Name→value only: no domain, path or expiry handling — enough for
+ * a session cookie used across a handful of requests inside one job run, and
+ * deliberately not an RFC 6265 implementation.
+ */
+export class CookieJar {
+	private cookies = new Map<string, string>();
+
+	capture(setCookieHeaders: string[]): void {
+		for (const header of setCookieHeaders) {
+			const pair = header.split(';', 1)[0];
+			const separator = pair.indexOf('=');
+			if (separator <= 0) continue;
+			const name = pair.slice(0, separator).trim();
+			const value = pair.slice(separator + 1).trim();
+			if (name) this.cookies.set(name, value);
+		}
+	}
+
+	/** `"a=1; b=2"`, or undefined when the jar is empty. */
+	header(): string | undefined {
+		if (this.cookies.size === 0) return undefined;
+		return [...this.cookies].map(([name, value]) => `${name}=${value}`).join('; ');
+	}
+
+	get size(): number {
+		return this.cookies.size;
+	}
+}
+
+export interface SessionResponse {
+	/** Final URL after any redirects. */
+	url: string;
+	status: number;
+	contentType: string | null;
+	text: string;
+}
+
+const MAX_REDIRECTS = 5;
+
+/**
+ * Cookie-aware fetch that follows redirects manually. Node's fetch drops
+ * Set-Cookie from intermediate 3xx hops and only exposes the final response's
+ * headers, so a session established by a redirecting landing page is lost with
+ * `redirect: 'follow'`. Hops are followed here with `redirect: 'manual'` so
+ * cookies can be captured at every one. A retry restarts the whole chain from
+ * the requested URL with the same jar.
+ */
+export async function fetchSession(
+	url: string,
+	options: FetchOptions & { jar: CookieJar }
+): Promise<SessionResponse> {
+	const { method = 'GET', headers, body, timeoutMs = 30_000, retries = 3, limiter, jar } = options;
+
+	let lastError: unknown;
+	for (let attempt = 0; attempt <= retries; attempt++) {
+		if (attempt > 0) await sleep(1000 * 2 ** (attempt - 1) * (1 + Math.random()));
+		try {
+			let currentUrl = url;
+			let currentMethod = method;
+			let currentBody = body;
+
+			for (let hop = 0; ; hop++) {
+				if (hop > MAX_REDIRECTS) {
+					throw new Error(`too many redirects (>${MAX_REDIRECTS}) starting at ${url}`);
+				}
+				await limiter?.acquire();
+				const cookieHeader = jar.header();
+				const res = await fetch(currentUrl, {
+					method: currentMethod,
+					headers: { ...headers, ...(cookieHeader ? { cookie: cookieHeader } : {}) },
+					body: currentBody,
+					signal: AbortSignal.timeout(timeoutMs),
+					redirect: 'manual'
+				});
+				jar.capture(res.headers.getSetCookie());
+
+				const location = res.headers.get('location');
+				if (res.status >= 300 && res.status < 400 && location) {
+					// drain so the socket can be reused
+					await res.arrayBuffer();
+					currentUrl = new URL(location, currentUrl).toString();
+					if (res.status === 301 || res.status === 302 || res.status === 303) {
+						currentMethod = 'GET';
+						currentBody = undefined;
+					}
+					continue;
+				}
+
+				const text = await res.text();
+				if (res.ok) {
+					return {
+						url: currentUrl,
+						status: res.status,
+						contentType: res.headers.get('content-type'),
+						text
+					};
+				}
+				throw new HttpError(res.status, currentUrl, text);
+			}
+		} catch (err) {
+			if (err instanceof HttpError && !RETRYABLE_STATUS.has(err.status)) throw err;
+			lastError = err instanceof HttpError ? err : new TransportError(url, err);
+		}
+	}
+	throw lastError;
+}
+
+/**
  * Node's built-in fetch (undici) intentionally rejects invalid response
  * headers. A few legacy public-sector portals still emit folded/multiline
  * headers; use this narrowly for such sources, never as the default client.

@@ -154,6 +154,45 @@ export const insiderTransaction = pgTable(
 );
 
 /**
+ * Net short position disclosure (EU SSR 236/2012 Art. 6) from the Bundesanzeiger
+ * "Netto-Leerverkaufspositionen" register. One row is a change *event*, not a
+ * daily snapshot.
+ *
+ * Only positions >= 0.5% are published. A position falling below that threshold
+ * is published once more with the sub-threshold value and then leaves the open
+ * register, so a row with positionPct < 0.5 is an implicit close. The open set
+ * at date D is the latest row per (holder, issuer) with positionDate <= D, kept
+ * only when positionPct >= 0.5 — that derivation belongs to the signal layer,
+ * never here. A holder may legitimately publish two different percentages on the
+ * same date (multiple threshold crossings).
+ *
+ * Unmatched issuers keep issuerId null (never dropped), like insiderTransaction.
+ */
+export const shortPosition = pgTable(
+	'short_position',
+	{
+		id: serial('id').primaryKey(),
+		source: text('source').notNull(),
+		issuerId: integer('issuer_id').references(() => issuer.id),
+		isin: text('isin'),
+		issuerNameRaw: text('issuer_name_raw').notNull(),
+		holderNameRaw: text('holder_name_raw').notNull(),
+		/** Percent of issued share capital as published ("0,63" → 0.63). */
+		positionPct: numeric('position_pct').notNull(),
+		/** Date the position was reached/changed — the point-in-time guard. */
+		positionDate: date('position_date').notNull(),
+		naturalKeyHash: text('natural_key_hash').notNull().unique(),
+		raw: jsonb('raw')
+	},
+	(t) => [
+		index('short_position_issuer_idx').on(t.issuerId, t.positionDate),
+		index('short_position_date_idx').on(t.positionDate),
+		// supports a later holder-normalization join without touching ingestion
+		index('short_position_holder_idx').on(t.holderNameRaw)
+	]
+);
+
+/**
  * Company-news headlines, multi-source (BF instrument_news now, EQS later).
  * `publishedDate` is the point-in-time guard (no lookahead); `externalId` is
  * the source-native id so full bodies stay fetchable later. Unmatched issuers

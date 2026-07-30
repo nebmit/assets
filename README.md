@@ -23,11 +23,12 @@ positioning and scope.
 ### Data sources (open/free only)
 
 | Data | Source | Notes |
-|---|---|---|
+| --- | --- | --- |
 | Index constituents, master data | api.boerse-frankfurt.de | Undocumented JSON API; tracing-header handshake in `sources/boerseFrankfurt/client.ts` |
 | EOD prices (XETR) | api.boerse-frankfurt.de | 3y `price_history` backfill for current instruments; daily closes come from the snapshot |
 | Fundamentals bootstrap + daily closes (EPS, market cap, dividend, prev close) | api.boerse-frankfurt.de | `equity_search` snapshot, one request per index per day; ESEF/Unternehmensregister parser is a later milestone |
 | Insider transactions (Art. 19 MAR) | BaFin DealingsInfo | Full rolling 12-month CSV export per run, natural-key dedupe |
+| Net short positions ≥0.5% (SSR 236/2012 Art. 6) | Bundesanzeiger Netto-Leerverkaufspositionen | Stateful Wicket session; 3y backfill then a rolling 90-day window, unioned with the open list; natural-key dedupe |
 
 The BF API silently tarpits callers after request bursts (~150+ at sub-second
 spacing), so the client rate-limits hard (2.5s), keeps per-request budgets

@@ -1,6 +1,7 @@
 import { signalsJob } from '../signals/engine.js';
 import { performanceJob } from '../signals/performance.js';
 import { insiderJob } from '../sources/bafin/insider.js';
+import { shortPositionsJob } from '../sources/bundesanzeiger/shortPositions.js';
 import { newsJob } from '../sources/boerseFrankfurt/news.js';
 import { pricesJob } from '../sources/boerseFrankfurt/prices.js';
 import { snapshotJob } from '../sources/boerseFrankfurt/snapshot.js';
@@ -18,6 +19,7 @@ export const allJobs: Job[] = [
 	snapshotJob,
 	pricesJob,
 	insiderJob,
+	shortPositionsJob,
 	// news last among ingesters: its ~7-min rate-limited walk feeds no signal
 	newsJob,
 	signalsJob,
