@@ -98,3 +98,8 @@ describe('ageOpacity', () => {
 		expect(ageOpacity('2026-06-01', asOf)).toBeGreaterThan(mid);
 	});
 });
+
+// Capture dates follow the register's calendar, including midnight UTC boundaries.
+it('formats snapshot capture dates in Berlin time', () => {
+	expect(formatDayMonthYear('2026-09-04T22:30:00Z', 'Europe/Berlin')).toBe('05 Sept 2026');
+});

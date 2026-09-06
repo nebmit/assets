@@ -1,3 +1,4 @@
+import { unknownShortSellers } from '../../shortSellers.js';
 import { describe, expect, it } from 'vitest';
 import { evaluateSignals, rankResults, SURFACED_SLUG } from './engine.js';
 import type { UniverseContext, UniverseInstrument } from './types.js';
@@ -19,7 +20,8 @@ describe('rankResults', () => {
 describe('evaluateSignals surfaced feed', () => {
 	function makeInstrument(id: number, overrides: Partial<UniverseInstrument>): UniverseInstrument {
 		return {
-			instrumentId: id,
+			shortSellers: unknownShortSellers(),
+		instrumentId: id,
 			issuerId: id,
 			isin: `DE${String(id).padStart(10, '0')}`,
 			ticker: `T${id}`,
@@ -109,4 +111,28 @@ describe('evaluateSignals surfaced feed', () => {
 		const row = results.get(SURFACED_SLUG)?.find((r) => r.instrumentId === 1);
 		expect(row?.rationale.event_date).toBe('2026-07-01');
 	});
+	it('absence only confirms existing discoveries and never penalizes presence or unknown data', () => {
+		const absent = { ...unknownShortSellers(), status: 'none_disclosed' as const,
+			freshness: 'fresh' as const, holderCount: 0, totalDisclosedPct: 0,
+			capturedAt: '2026-07-02T06:00:00Z', snapshotId: 1 };
+		const quiet = makeInstrument(1, { shortSellers: absent });
+		const quietResults = evaluateSignals(ctxOf([quiet]));
+		expect(quietResults.get('no_disclosed_shorts')?.[0]).toMatchObject({ passedGate: true, score: 0.1 });
+		expect(quietResults.get(SURFACED_SLUG)?.[0]).toMatchObject({ passedGate: false, score: null });
+
+		const bought = makeInstrument(2, { epsBasic: -1, insiderTx: [bigBuy] });
+		const base = evaluateSignals(ctxOf([bought])).get(SURFACED_SLUG)![0].score!;
+		const confirmed = evaluateSignals(ctxOf([{ ...bought, shortSellers: absent }]));
+		expect(confirmed.get(SURFACED_SLUG)![0].score).toBeCloseTo(base + 0.1 * (1 - base));
+		expect(confirmed.get(SURFACED_SLUG)![0].rationale.reasons).toContainEqual({
+			signal: 'no_disclosed_shorts', severity: 0.1, headline: 'No publicly disclosed short positions'
+		});
+		for (const shortSellers of [unknownShortSellers(), { ...absent, freshness: 'stale' as const },
+			{ ...absent, status: 'present' as const }]) {
+			const result = evaluateSignals(ctxOf([{ ...bought, shortSellers }]));
+			expect(result.get('no_disclosed_shorts')![0].passedGate).toBe(false);
+			expect(result.get(SURFACED_SLUG)![0].score).toBeCloseTo(base);
+		}
+	});
+
 });

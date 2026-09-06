@@ -108,3 +108,18 @@ export function buildSearchBody(filters: NlpFilters): string {
 	params.set('nlp-search-button', 'Leerverkäufe suchen');
 	return params.toString();
 }
+
+/** Confirm the returned form represents an unfiltered open register. */
+export function assertOpenScope(html: string): void {
+	assertFilterFormFields(html, FILTER_FORM_FIELDS);
+	for (const field of FILTER_FORM_FIELDS) {
+		const input = [...html.matchAll(/<input\b[^>]*>/gi)].map((m) => m[0])
+			.find((tag) => tag.match(/\bname="([^"]+)"/)?.[1] === field);
+		if (!input) throw new Error(`NLP open scope cannot verify ${field}`);
+		if (field === 'isHistorical') {
+			if (/\schecked(?:\s|=|\/?>)/i.test(input)) throw new Error('NLP export is historical, not open');
+		} else if ((input.match(/\bvalue="([^"]*)"/)?.[1] ?? '') !== '') {
+			throw new Error(`NLP open export is filtered by ${field}`);
+		}
+	}
+}

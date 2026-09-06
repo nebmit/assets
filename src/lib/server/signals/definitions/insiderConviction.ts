@@ -64,6 +64,7 @@ const CONTRARIAN_BOOST_MAX = 0.5;
  * clears the floor, ~0.5 is strong, ~1 is exceptional.
  */
 export const insiderConvictionSignal: SignalDefinition = {
+	role: 'discovery',
 	slug: 'insider_conviction',
 	name: 'Insider Conviction',
 	version: 3,

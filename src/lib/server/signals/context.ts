@@ -1,3 +1,5 @@
+import { loadShortSellerAnalysis } from '../shortSellers/queries.js';
+import { unknownShortSellers } from '../../shortSellers.js';
 import { sql } from 'drizzle-orm';
 import type { Db } from '../db/index.js';
 import { METRICS } from '../fundamentals/metrics.js';
@@ -97,6 +99,7 @@ export async function buildContext(db: Db, runDate: string): Promise<UniverseCon
 		txByIssuer.set(row.issuer_id, list);
 	}
 
+	const shortsByIssuer = await loadShortSellerAnalysis(db, runDate);
 	const instruments: UniverseInstrument[] = members.map((m) => {
 		const close = closeByInstrument.get(m.instrument_id);
 		const closeValue = close ? Number(close.close) : null;
@@ -106,6 +109,7 @@ export async function buildContext(db: Db, runDate: string): Promise<UniverseCon
 		const returnFrom = (base: number | null) =>
 			closeValue !== null && base !== null && base > 0 ? closeValue / base - 1 : null;
 		return {
+			shortSellers: shortsByIssuer.get(m.issuer_id) ?? unknownShortSellers(),
 			instrumentId: m.instrument_id,
 			issuerId: m.issuer_id,
 			isin: m.isin,

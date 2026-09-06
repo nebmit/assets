@@ -403,6 +403,7 @@
 				{#if panelEntries.length > 0}
 					<WatchlistPanel
 						entries={panelEntries}
+						shortSellersByIsin={payload?.shortSellersByIsin ?? {}}
 						{surfacedIsins}
 						onremove={(isin) => watchlist.remove(isin)}
 					/>

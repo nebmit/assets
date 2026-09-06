@@ -1,3 +1,4 @@
+import { loadRunShortSellers } from '../shortSellers/queries.js';
 import { and, desc, eq, inArray } from 'drizzle-orm';
 import { sql } from 'drizzle-orm';
 import type { Db } from '../db/index.js';
@@ -57,7 +58,7 @@ const HI_LO_WINDOW_DAYS = 365;
 export async function loadFeed(db: Db): Promise<FeedPayload | null> {
 	// Latest run + the one before it (for lifecycle) in a single query.
 	const [runs, definitions] = await Promise.all([
-		db.select().from(signalRun).orderBy(desc(signalRun.runDate)).limit(2),
+		db.select().from(signalRun).where(eq(signalRun.status, 'success')).orderBy(desc(signalRun.runDate)).limit(2),
 		db
 			.select({ id: signalDefinition.id, slug: signalDefinition.slug })
 			.from(signalDefinition)
@@ -66,6 +67,7 @@ export async function loadFeed(db: Db): Promise<FeedPayload | null> {
 	const [run, previousRun] = runs;
 	if (!run) return null;
 	const runDate = run.runDate;
+	const shortSellersByIsin = await loadRunShortSellers(db, run.id);
 	const definitionIdBySlug = new Map(definitions.map((s) => [s.slug, s.id]));
 	const slugByDefinitionId = new Map(definitions.map((s) => [s.id, s.slug as FeedViewSlug]));
 	const feedDefinitionIds = [...definitionIdBySlug.values()];
@@ -73,6 +75,7 @@ export async function loadFeed(db: Db): Promise<FeedPayload | null> {
 	const emptyPayload = (): FeedPayload => ({
 		runDate,
 		universeSize: run.universeSize,
+		shortSellersByIsin,
 		views: [...FEED_VIEWS],
 		cardsByView: buildCardsByView(() => [])
 	});
@@ -169,6 +172,7 @@ export async function loadFeed(db: Db): Promise<FeedPayload | null> {
 	return {
 		runDate,
 		universeSize: run.universeSize,
+		shortSellersByIsin,
 		views: [...FEED_VIEWS],
 		cardsByView: buildCardsByView((slug) =>
 			assembleCards(
@@ -178,7 +182,8 @@ export async function loadFeed(db: Db): Promise<FeedPayload | null> {
 				series,
 				latest,
 				insiders,
-				news
+				news,
+				shortSellersByIsin
 			)
 		)
 	};

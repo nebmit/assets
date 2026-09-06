@@ -57,6 +57,13 @@
       "when": 1785341468498,
       "tag": "0007_nappy_emma_frost",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1788615457187,
+      "tag": "0008_green_skrulls",
+      "breakpoints": true
     }
   ]
 }

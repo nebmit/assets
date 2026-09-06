@@ -1,3 +1,7 @@
+import { loadRunShortSellers } from '../shortSellers/queries.js';
+import { signalRun } from '../db/schema.js';
+import { eq, and } from 'drizzle-orm';
+import { unknownShortSellers, type ShortSellerAnalysis } from '../../shortSellers.js';
 import { sql } from 'drizzle-orm';
 import type { Db } from '../db/index.js';
 import { toDealingView, type InsiderDealingView } from '../mcp/enrich.js';
@@ -48,6 +52,7 @@ export interface PartyFollowThrough {
 }
 
 export interface IssuerDetail {
+	shortSellers: ShortSellerAnalysis;
 	isin: string;
 	ticker: string | null;
 	name: string;
@@ -133,6 +138,9 @@ export async function issuerDetail(db: Db, isin: string, runDate: string): Promi
 		sector: string | null;
 	}[];
 	if (!target) return null;
+	const [run] = await db.select({ id: signalRun.id }).from(signalRun)
+		.where(and(eq(signalRun.runDate, runDate), eq(signalRun.status, 'success')));
+	const shorts = run ? await loadRunShortSellers(db, run.id) : {};
 
 	const [closeRows, fundamentalRows, dealingRows, newsRows] = await Promise.all([
 		db.execute(sql`
@@ -180,6 +188,7 @@ export async function issuerDetail(db: Db, isin: string, runDate: string): Promi
 	const insiderHistory = dealingRows.map((row) => toDealingView(row, runDate));
 
 	return {
+		shortSellers: shorts[target.isin] ?? unknownShortSellers(),
 		isin: target.isin,
 		ticker: target.ticker,
 		name: target.name,

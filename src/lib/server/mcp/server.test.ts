@@ -1,3 +1,4 @@
+import { unknownShortSellers } from '../../shortSellers.js';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { describe, expect, it } from 'vitest';
@@ -9,6 +10,7 @@ import { buildMcpServer, type McpDeps } from './server.js';
 const RUN_DATE = '2026-07-01';
 
 const alphaRow: EnrichedReportRow = {
+	shortSellers: unknownShortSellers(),
 	rank: 1,
 	ticker: 'AAA',
 	isin: 'DE0000000001',
@@ -82,6 +84,7 @@ const alphaRow: EnrichedReportRow = {
 
 /** Pre-enrichment row shape (older run / instrument without data): everything nullable is null. */
 const betaRow: EnrichedReportRow = {
+	shortSellers: unknownShortSellers(),
 	rank: 2,
 	ticker: null,
 	isin: 'DE0000000002',
@@ -108,6 +111,7 @@ function makeReport(slug: string, top: number): EnrichedSignalReport {
 }
 
 const detailFixture: IssuerDetail = {
+	shortSellers: unknownShortSellers(),
 	isin: 'DE0000000001',
 	ticker: 'AAA',
 	name: 'Alpha AG',
@@ -162,6 +166,7 @@ describe('mcp server', () => {
 		expect(tools.map((t) => t.name).sort()).toEqual([
 			'issuer_detail',
 			'signal_insider_conviction',
+			'signal_no_disclosed_shorts',
 			'signal_relative_value',
 			'surface_latest'
 		]);
@@ -183,13 +188,15 @@ describe('mcp server', () => {
 			'components',
 			'news',
 			'superSector',
-			'sectorPeersFiring'
+			'sectorPeersFiring',
+			'shortSellers'
 		]) {
 			expect(rowProperties).toHaveProperty(field);
 		}
 		const detail = tools.find((t) => t.name === 'issuer_detail');
 		expect(detail?.inputSchema.properties).toHaveProperty('isin');
 		expect(detail?.outputSchema?.properties).toHaveProperty('insiderFollowThrough');
+		expect(detail?.outputSchema?.properties).toHaveProperty('shortSellers');
 	});
 
 	it('returns a structured report with rationale summaries and enrichment', async () => {
@@ -201,6 +208,7 @@ describe('mcp server', () => {
 
 		expect(result.isError).toBeFalsy();
 		const report = result.structuredContent as EnrichedSignalReport & { top: { summary: string }[] };
+		expect(report.top[0].shortSellers).toEqual(alphaRow.shortSellers);
 		expect(report).toMatchObject({ signal: 'insider_conviction', runDate: RUN_DATE, passed: 2 });
 		expect(report.top).toHaveLength(2);
 		expect(report.top[0].summary).toBe('3 insiders bought €250k in 30d');
@@ -256,6 +264,7 @@ describe('mcp server', () => {
 		});
 		expect(result.isError).toBeFalsy();
 		const detail = result.structuredContent as IssuerDetail;
+		expect(detail.shortSellers).toEqual(detailFixture.shortSellers);
 		expect(detail).toMatchObject({
 			isin: 'DE0000000001',
 			superSector: 'Industrials',

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import ShortSellerPanel from './ShortSellerPanel.svelte';
 	import { FILINGS_SEARCH_URL } from '$lib/externalLinks.js';
 	import { FINANCIAL_TERMS, type FinancialTerm } from '$lib/financialTerms.js';
 	import { formatCompactEur, formatPrice, formatRatio } from '$lib/format.js';
@@ -57,6 +58,7 @@
 	);
 
 	const REASON_TERM_KEYS: Record<string, keyof typeof FINANCIAL_TERMS> = {
+		no_disclosed_shorts: 'shortSellers',
 		insider_conviction: 'insiderConviction',
 		relative_value: 'relativeValue'
 	};
@@ -283,6 +285,7 @@
 		<InsiderList insiders={card.insiders} asOf={runDate} isin={card.isin} />
 		<NewsList news={card.news} isin={card.isin} />
 	</div>
+	<ShortSellerPanel analysis={card.shortSellers} />
 </article>
 
 <style>

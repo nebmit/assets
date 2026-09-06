@@ -19,7 +19,8 @@ import {
 	insiderTransaction,
 	instrument,
 	issuer,
-	newsItem
+	newsItem,
+	shortPositionSnapshot
 } from '../src/lib/server/db/schema.js';
 import { runSignals } from '../src/lib/server/signals/engine.js';
 
@@ -323,6 +324,17 @@ async function main(): Promise<void> {
 			);
 		}
 	}
+
+	// Synthetic public-register snapshot for UI review; these are NOT real positions.
+	await db.insert(shortPositionSnapshot).values({
+		source: 'demo', capturedAt: new Date(`${isoDaysAgo(1)}T06:00:00Z`),
+		rows: [0.72, 0.51].map((positionPct, i) => ({
+			holderNameRaw: `Demo Research Fund ${i + 1}`, issuerNameRaw: COMPANIES[0].name,
+			isin: COMPANIES[0].isin, positionPct, positionDate: isoDaysAgo(8 + i),
+			naturalKeyHash: `demo-short-${i}`, raw: { demo: 'true' }
+		})),
+		diagnostics: { complete: true, unidentifiableRows: 0, duplicatesCollapsed: 0 }
+	});
 
 	// two consecutive runs so day-over-day lifecycle states render in the UI
 	await runSignals(db, isoDaysAgo(1));

@@ -34,13 +34,13 @@ export function formatDayMonth(iso: string): string {
 }
 
 /** "01 Jul 2026" — for the as-of line. */
-export function formatDayMonthYear(iso: string): string {
+export function formatDayMonthYear(iso: string, timeZone = 'UTC'): string {
 	const d = new Date(iso);
 	return d.toLocaleDateString('en-GB', {
 		day: '2-digit',
 		month: 'short',
 		year: 'numeric',
-		timeZone: 'UTC'
+		timeZone
 	});
 }
 

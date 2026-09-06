@@ -82,13 +82,13 @@ export function parseIsoDate(input: string): string | null {
  * key, so genuine same-day revisions survive as separate rows, and the issuer
  * name is only used when the ISIN is absent so a rename cannot mint phantom rows.
  */
-export function parseShortPositionsCsv(csvText: string): ParsedShortPositions {
+export function parseShortPositionsCsv(csvText: string, strictColumns = false): ParsedShortPositions {
 	const records: Record<string, string>[] = parse(csvText, {
 		delimiter: ',',
 		bom: true,
 		skip_empty_lines: true,
 		trim: true,
-		relax_column_count: true,
+		relax_column_count: !strictColumns,
 		columns: (header: string[]) => {
 			const actual = header.join(',');
 			const expected = EXPECTED_HEADER.join(',');

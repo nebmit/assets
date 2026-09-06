@@ -5,6 +5,11 @@ export interface FinancialTerm {
 }
 
 export const FINANCIAL_TERMS = {
+	shortSellers: {
+		term: 'Public short positions',
+		definition: 'Disclosed net short positions of at least 0.5% per holder',
+		clarification: 'Fresh confirmed absence adds a small confirmation to existing discoveries. It never surfaces an asset alone. Smaller undisclosed positions may exist.'
+	},
 	germanIndices: {
 		term: 'DAX / MDAX / SDAX',
 		definition: 'Deutscher Aktienindex / Mid-Cap-DAX / Small-Cap-DAX',
@@ -13,7 +18,7 @@ export const FINANCIAL_TERMS = {
 	surfaced: {
 		term: 'Surfaced',
 		definition: 'Assets with fired signals',
-		clarification: 'An asset appears when at least one signal clears its materiality gate for the run.'
+		clarification: 'An asset appears when at least one discovery signal clears its materiality gate for the run.'
 	},
 	insiderConviction: {
 		term: 'Insider Conviction',

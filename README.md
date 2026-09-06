@@ -39,7 +39,7 @@ reserved for backfill.
 
 ### Signal engine
 
-A signal = an absolute materiality gate + a calibrated severity in [0, 1]
+A discovery signal = an absolute materiality gate + a calibrated severity in [0, 1]
 (~0.2 barely material, ~0.5 strong, ~1 exceptional — comparable across
 runs, so an empty day is a valid, meaningful answer). Raw inputs live in
 `signal.rationale`, including a human-readable `headline`. All data access
@@ -54,8 +54,10 @@ is point-in-time (`published_date <= run_date`, no lookahead).
   fallback). Gate: a *material* discount (≥15%), fresh close, positive
   EPS, and no falling knife (>35% six-month drop). Dividend yield adds a
   small support bonus.
-- `surfaced`: the headline feed — the *union* of fired signals, combined by
-  noisy-or (`1 − Π(1 − severity)`). One fired signal surfaces the asset;
+- `no_disclosed_shorts` (v1): fresh confirmed absence of public short positions;
+  a 0.10 confirmation that contributes only after a discovery signal fires.
+- `surfaced`: the headline feed — the *union* of fired discovery signals, combined by
+  noisy-or (`1 − Π(1 − severity)`). One fired discovery signal surfaces the asset;
   more are confirmations, never a requirement. Per-row `reasons` carry each
   fired signal's headline + severity.
 
@@ -148,3 +150,45 @@ composition is owned by the infra repo at
 `services/assets/compose.caddy.yml`; this repo's `docker-compose.yml` is only
 for the local Postgres dependency. The worker applies migrations at boot and
 runs the pipeline daily at 06:30 Europe/Berlin by default.
+
+### Short seller analysis
+
+The Bundesanzeiger job preserves validated, unfiltered open-register snapshots alongside
+its disclosure history. Asset cards and every watchlist entry show public position status,
+named holders, disclosed percentages, position dates, and the snapshot check date. The
+watchlist joins the run's public ISIN map in the browser; private watchlist contents remain
+in the existing encrypted store.
+
+`no_disclosed_shorts` (No Disclosed Shorts) is a **confirmation** signal. Fresh confirmed
+absence contributes 0.10 through noisy-or only after a discovery signal fires:
+`combined = base + 0.10 * (1 - base)`. Absence alone never surfaces an asset, and presence
+adds no penalty. The existing feed tabs remain discovery views; worker reports and MCP
+also expose `signal_no_disclosed_shorts`. Both MCP reports and issuer detail include the
+saved short seller analysis.
+
+Public disclosure starts at 0.5% per holder. “No publicly disclosed short positions” does
+not establish zero short interest. Sub-threshold final disclosures leave the active set;
+conflicting latest disclosures produce unknown coverage. Invalid or incomplete exports
+never certify absence. Unidentifiable rows block absence, while out-of-universe valid
+ISINs do not. Totals are null when complete coverage cannot be established.
+
+Snapshots are available only from their actual capture day in Europe/Berlin. They remain
+fresh for three calendar days; older snapshots retain their dated details but do not boost
+scores. Old position dates alone do not expire holdings. Dates before snapshot collection
+began remain unknown. Signal rationales freeze the exact analysis used by a run, so later
+ingestion cannot silently change its UI or MCP evidence. Regenerating a date replaces the
+run; the feed cache notices the new run ID within its 60-second revalidation interval.
+
+Roll out against the intended `DATABASE_URL`:
+
+```sh
+npm run worker -- migrate
+npm run worker -- run --job=bundesanzeiger_short_positions
+npm run worker -- run --job=signals
+```
+
+No additional credentials or environment variables are needed. Migration 0008 adds only
+the snapshot table and capture-time index. Check the ingestion statistics and logs for
+`open_export_failed` before expecting new coverage. `npm run seed:demo` includes clearly
+synthetic short holders and remains destructive: use it only in a disposable database.
+The CSV parser fixture combines representative source-format rows with synthetic edge cases.

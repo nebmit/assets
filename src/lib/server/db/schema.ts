@@ -1,3 +1,5 @@
+import type { ParsedShortPosition } from '../sources/bundesanzeiger/parse.js';
+import type { SnapshotDiagnostics } from '../shortSellers/analysis.js';
 import {
 	bigint,
 	boolean,
@@ -370,3 +372,12 @@ export const ingestionRun = pgTable(
 	},
 	(t) => [index('ingestion_run_job_idx').on(t.job, t.startedAt)]
 );
+
+/** Validated full open-register observations; historical disclosure rows remain separate. */
+export const shortPositionSnapshot = pgTable('short_position_snapshot', {
+	id: serial('id').primaryKey(),
+	source: text('source').notNull(),
+	capturedAt: timestamp('captured_at', { withTimezone: true }).notNull(),
+	rows: jsonb('rows').$type<ParsedShortPosition[]>().notNull(),
+	diagnostics: jsonb('diagnostics').$type<SnapshotDiagnostics>().notNull()
+}, (t) => [index('short_position_snapshot_captured_idx').on(t.capturedAt)]);

@@ -84,6 +84,7 @@ function peerMedians(ctx: UniverseContext): PeerMedians {
  * discount depth plus a small dividend-yield support bonus.
  */
 export const relativeValueSignal: SignalDefinition = {
+	role: 'discovery',
 	slug: 'relative_value',
 	name: 'Relative Value',
 	version: 3,

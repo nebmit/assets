@@ -1,3 +1,4 @@
+import { noDisclosedShortsSignal } from './definitions/noDisclosedShorts.js';
 import { eq } from 'drizzle-orm';
 import type { Db } from '../db/index.js';
 import { signal, signalDefinition, signalRun } from '../db/schema.js';
@@ -9,21 +10,21 @@ import { percentileRanks } from './stats.js';
 import type { RankedResult, SignalDefinition, UniverseContext } from './types.js';
 
 export const SURFACED_SLUG = 'surfaced';
-export const signalDefinitions: SignalDefinition[] = [insiderConvictionSignal, relativeValueSignal];
+export const signalDefinitions: SignalDefinition[] = [insiderConvictionSignal, relativeValueSignal, noDisclosedShortsSignal];
 
 /**
- * The headline feed: the *union* of fired signals, not an intersection of
- * gates. Any single signal clearing its absolute materiality floor surfaces
+ * The headline feed: the *union* of fired discovery signals, not an intersection of
+ * gates. Any discovery signal clearing its absolute materiality floor surfaces
  * the asset; additional fired signals are confirmations that raise the
  * combined severity (noisy-or), never a requirement. Empty days are empty.
  */
 export const surfacedMeta = {
 	slug: SURFACED_SLUG,
 	name: 'Surfaced',
-	version: 1,
+	version: 2,
 	params: {
 		components: signalDefinitions.map((s) => s.slug),
-		combination: 'noisy-or',
+		combination: 'noisy-or; requires a discovery signal',
 		severity_scale: '1 − Π(1 − component severity); components are absolute [0,1] severities'
 	}
 };
@@ -65,13 +66,13 @@ export function evaluateSignals(ctx: UniverseContext): Map<string, RankedResult[
 	const componentResults = signalDefinitions.map((def) => {
 		const byInstrument = new Map<number, RankedResult>();
 		for (const result of bySlug.get(def.slug) ?? []) byInstrument.set(result.instrumentId, result);
-		return { slug: def.slug, byInstrument };
+		return { slug: def.slug, role: def.role, byInstrument };
 	});
 	const surfaced = ctx.instruments.map((instrument) => {
 		const fired = componentResults
-			.map(({ slug, byInstrument }) => ({ slug, result: byInstrument.get(instrument.instrumentId) }))
+			.map(({ slug, role, byInstrument }) => ({ slug, role, result: byInstrument.get(instrument.instrumentId) }))
 			.filter(
-				(c): c is { slug: string; result: RankedResult } =>
+				(c): c is { slug: string; role: 'discovery' | 'confirmation'; result: RankedResult } =>
 					c.result !== undefined && c.result.passedGate && c.result.score !== null
 			);
 		const rationale: Record<string, unknown> = Object.fromEntries(
@@ -80,7 +81,7 @@ export function evaluateSignals(ctx: UniverseContext): Map<string, RankedResult[
 				byInstrument.get(instrument.instrumentId)?.score ?? null
 			])
 		);
-		if (fired.length === 0) {
+		if (!fired.some((c) => c.role === 'discovery')) {
 			return { instrumentId: instrument.instrumentId, passedGate: false, score: null, rationale };
 		}
 		// noisy-or: confirmations add with diminishing returns, never gate

@@ -10,15 +10,19 @@ export interface SignalToolMeta {
 
 /** LLM-facing descriptions; a signal missing here falls back to its display name. */
 const descriptions: Record<string, string> = {
+	no_disclosed_shorts: 'No Disclosed Shorts: confirmation over fresh, complete Bundesanzeiger open-register snapshots. ' +
+		'No publicly disclosed positions at or above 0.5% per holder contributes 0.10 via noisy-or only when a discovery signal fires. ' +
+		'Absence alone never surfaces an asset; presence adds no penalty. Smaller undisclosed positions may exist. ' +
+		'Historical dates before snapshot coverage are unknown. Rows include holder details, disclosed totals and freshness.',
 	[surfacedMeta.slug]:
 		'The surfaced-assets feed over German equities (DAX/MDAX/SDAX) — the headline output. An ' +
 		'asset appears when at least one signal fires past an absolute materiality floor (insider ' +
 		'buying cluster, material valuation discount); additional fired signals raise the combined ' +
-		'severity (noisy-or) but are never required. Scores are calibrated severities in [0,1], ' +
+		'severity (noisy-or) but are never required. Fresh confirmed absence of disclosed short positions adds a 0.10 confirmation; it never surfaces an asset alone. Scores are calibrated severities in [0,1], ' +
 		'comparable across days: ~0.2 barely material, ~0.5 strong, ~1 exceptional. An empty result ' +
 		'is meaningful — nothing interesting happened. Each row also carries the named insiders with ' +
 		'roles, dates and prices, a point-in-time fundamentals snapshot, every signal’s severity ' +
-		'sub-components, recent news headlines and a sector-concentration count — use `issuer_detail` ' +
+		'sub-components, public short seller analysis, recent news headlines and a sector-concentration count — use `issuer_detail` ' +
 		'for price/EPS history and insider follow-through. We surface, we never recommend.',
 	insider_conviction:
 		'Insider Conviction signal over German equities (DAX/MDAX/SDAX): role-weighted, ' +
@@ -44,7 +48,7 @@ export const ISSUER_DETAIL_DESCRIPTION =
 	'Historical drill-down for one instrument by ISIN: ~36 months of monthly closes, EPS / market-cap ' +
 	'/ dividend history (the shape separates "earnings genuinely recovered" from "the multiple ' +
 	'deflated"), the stored directors’-dealings record with per-insider follow-through (has this ' +
-	'person bought before, and what did the price do afterwards?), and recent headlines. All data is ' +
+	'person bought before, and what did the price do afterwards?), public short seller analysis from the signal run, and recent headlines. All data is ' +
 	'bounded by the run date (no lookahead) and reaches back only as far as ingestion does: prices ' +
 	'~3 years, dealings accumulate beyond BaFin’s rolling 12-month export over time. Works for any ' +
 	'universe instrument, surfaced or not.';

@@ -1,6 +1,7 @@
+import { validateOpenExport } from '../../shortSellers/analysis.js';
 import { inArray, max, min } from 'drizzle-orm';
 import { subtractYears } from '../../../date.js';
-import { instrument, shortPosition } from '../../db/schema.js';
+import { instrument, shortPosition, shortPositionSnapshot } from '../../db/schema.js';
 import { CookieJar, fetchSession, RateLimiter } from '../../http.js';
 import type { Job, JobContext, JobStats } from '../../pipeline/types.js';
 import { archiveRaw } from '../../rawArchive.js';
@@ -8,6 +9,7 @@ import { addDays, daysBetween } from '../../util.js';
 import {
 	assertFilterFormFields,
 	buildSearchBody,
+	assertOpenScope,
 	extractCsvExportUrl,
 	extractFilterFormAction,
 	FILTER_FORM_FIELDS,
@@ -125,6 +127,8 @@ async function fetchExport(
 		});
 	}
 
+	if (kind === 'open') assertOpenScope(page.text);
+
 	// re-read the export link *after* the POST: the page id has changed
 	const csv = await fetchSession(extractCsvExportUrl(page.text), {
 		headers: BROWSER_HEADERS,
@@ -187,7 +191,12 @@ export const shortPositionsJob: Job = {
 		let openRows: ParsedShortPosition[] = [];
 		let openExportFailed = 0;
 		try {
-			const open = parseShortPositionsCsv(await fetchExport('open', null));
+			const open = parseShortPositionsCsv(await fetchExport('open', { historical: false }), true);
+			const capturedAt = new Date();
+			const diagnostics = validateOpenExport(open, capturedAt);
+			await ctx.db.insert(shortPositionSnapshot).values({
+				source: BUNDESANZEIGER_SOURCE, capturedAt, rows: open.rows, diagnostics
+			});
 			openRows = open.rows;
 		} catch (err) {
 			openExportFailed = 1;

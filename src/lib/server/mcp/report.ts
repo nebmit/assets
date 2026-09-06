@@ -1,3 +1,5 @@
+import { loadRunShortSellers } from '../shortSellers/queries.js';
+import { unknownShortSellers, type ShortSellerAnalysis } from '../../shortSellers.js';
 import { and, eq } from 'drizzle-orm';
 import type { Db } from '../db/index.js';
 import { instrument, issuer, signal, signalDefinition, signalRun } from '../db/schema.js';
@@ -15,6 +17,7 @@ import {
 } from './enrich.js';
 
 export interface EnrichedReportRow extends ReportRow {
+	shortSellers: ShortSellerAnalysis;
 	superSector: string | null;
 	/** Other issuers in the same super-sector passing this signal in the same run. */
 	sectorPeersFiring: number | null;
@@ -80,11 +83,12 @@ export async function enrichedSignalReport(
 
 	const instrumentIds = visible.map((r) => r.instrumentId);
 	const issuerIds = [...new Set(visible.map((r) => r.issuerId))];
-	const [fundamentals, components, insiders, news] = await Promise.all([
+	const [fundamentals, components, insiders, news, shorts] = await Promise.all([
 		loadFundamentalsSnapshots(db, visible, runDate),
 		loadComponentBreakdowns(db, run.id, instrumentIds),
 		loadInsiderDetails(db, issuerIds, runDate),
-		loadNewsSummaries(db, issuerIds, runDate)
+		loadNewsSummaries(db, issuerIds, runDate),
+		loadRunShortSellers(db, run.id)
 	]);
 
 	return {
@@ -95,6 +99,7 @@ export async function enrichedSignalReport(
 		top: visible.map((r) => {
 			const sector = concentration.get(r.isin);
 			return {
+				shortSellers: shorts[r.isin] ?? unknownShortSellers(),
 				rank: r.rank as number,
 				ticker: r.ticker,
 				isin: r.isin,

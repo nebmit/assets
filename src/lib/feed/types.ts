@@ -1,3 +1,4 @@
+import type { ShortSellerAnalysis } from '../shortSellers.js';
 /**
  * Shared (server → client) payload types for the surfaced feed. Everything
  * here must stay JSON-serializable: it crosses the SvelteKit load boundary.
@@ -47,6 +48,7 @@ export type LifecycleState = 'new' | 'strengthening' | 'persisting' | 'fading';
 
 /** Everything one asset card renders. Missing data degrades to null/[] — never omitted keys. */
 export interface CardData {
+	shortSellers: ShortSellerAnalysis;
 	instrumentId: number;
 	isin: string;
 	wkn: string | null;
@@ -82,6 +84,7 @@ export interface CardData {
 }
 
 export interface FeedPayload {
+	shortSellersByIsin: Record<string, ShortSellerAnalysis>;
 	/** Signal-run date (yyyy-mm-dd) all card data is point-in-time consistent with. */
 	runDate: string;
 	universeSize: number | null;

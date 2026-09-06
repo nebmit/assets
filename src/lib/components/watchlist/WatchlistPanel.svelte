@@ -1,4 +1,6 @@
 <script lang="ts">
+	import ShortSellerPanel from '../feed/ShortSellerPanel.svelte';
+	import type { ShortSellerAnalysis } from '$lib/shortSellers.js';
 	import { formatDayMonthYear } from '$lib/format.js';
 	import type { ListEntry } from '$lib/userData/types.js';
 	import Badge from '../ds/Badge.svelte';
@@ -14,12 +16,13 @@
 	 */
 	interface Props {
 		entries: ListEntry[];
+		shortSellersByIsin: Record<string, ShortSellerAnalysis>;
 		/** ISINs present in the current feed payload (drives the "surfaced" chip). */
 		surfacedIsins: Set<string>;
 		onremove: (isin: string) => void;
 	}
 
-	let { entries, surfacedIsins, onremove }: Props = $props();
+	let { entries, surfacedIsins, onremove, shortSellersByIsin }: Props = $props();
 
 	const sorted = $derived([...entries].sort((a, b) => (a.addedAt < b.addedAt ? 1 : -1)));
 
@@ -44,7 +47,7 @@
 	<ul class="m-0 list-none p-0">
 		{#each sorted as entry (entry.isin)}
 			<li
-				class="flex items-center gap-3 border-b border-border-subtle py-[9px] pr-[14px] pl-5 transition-colors duration-[120ms] last:border-b-0 hover:bg-surface-hover"
+				class="flex flex-wrap items-center gap-3 border-b border-border-subtle py-[9px] pr-[14px] pl-5 transition-colors duration-[120ms] last:border-b-0 hover:bg-surface-hover"
 				style:transition-timing-function="var(--ease-standard)"
 			>
 				<div class="flex min-w-0 flex-1 flex-col gap-[2px] sm:flex-row sm:items-baseline sm:gap-[10px]">
@@ -84,6 +87,9 @@
 						<path d="M6 6 L18 18 M18 6 L6 18" />
 					</svg>
 				</Button>
+			<div class="w-full [&>details]:border-t-0 [&>details]:px-0 [&>details]:py-1">
+					<ShortSellerPanel analysis={shortSellersByIsin[entry.isin]} />
+				</div>
 			</li>
 		{/each}
 	</ul>

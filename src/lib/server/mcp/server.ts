@@ -1,3 +1,4 @@
+import { shortSellerAnalysisSchema } from '../shortSellers/rationale.js';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import type { IssuerDetail } from '../issuer/detail.js';
@@ -124,6 +125,7 @@ const relativeValueComponents = z
 	.describe('Relative-value severity sub-components; null when the run has no row for this signal');
 
 const rowSchema = z.object({
+	shortSellers: shortSellerAnalysisSchema.describe('Public short seller evidence saved with this run; disclosed totals are not total market short interest'),
 	rank: z.number().describe('1 = strongest'),
 	ticker: z.string().nullable(),
 	isin: z.string(),
@@ -171,7 +173,7 @@ const rowSchema = z.object({
 		.object({ insiderConviction: insiderComponents, relativeValue: relativeValueComponents })
 		.nullable()
 		.describe(
-			'Severity sub-components of every component signal for this instrument in this run — ' +
+			'Severity sub-components of the discovery signals for this instrument in this run — ' +
 				'populated whether or not the signal fired, so a row surfaced by one signal still shows ' +
 				'the other’s inputs. Fields unknown to older engine versions are null.'
 		),
@@ -216,6 +218,7 @@ const metricPoint = z.object({
 });
 
 const detailOutputSchema = {
+	shortSellers: shortSellerAnalysisSchema,
 	isin: z.string(),
 	ticker: z.string().nullable(),
 	name: z.string().describe('Issuer name'),

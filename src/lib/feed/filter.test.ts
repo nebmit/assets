@@ -1,9 +1,11 @@
+import { unknownShortSellers } from '../shortSellers.js';
 import { describe, expect, it } from 'vitest';
 import { matchesSearch } from './filter.js';
 import type { CardData } from './types.js';
 
 function card(overrides: Partial<CardData>): CardData {
 	return {
+		shortSellers: unknownShortSellers(),
 		instrumentId: 1,
 		isin: 'DE0007164600',
 		wkn: '716460',

@@ -10,16 +10,16 @@ const db = {} as Db;
 function payloadFor(runDate: string): FeedPayload {
 	const cardsByView = {} as Record<FeedViewSlug, CardData[]>;
 	for (const view of FEED_VIEWS) cardsByView[view.slug] = [];
-	return { runDate, universeSize: 100, views: [...FEED_VIEWS], cardsByView };
+	return { shortSellersByIsin: {}, runDate, universeSize: 100, views: [...FEED_VIEWS], cardsByView };
 }
 
 /** Test harness: counting stubs for the two DB operations plus a manual clock. */
 function harness(initialRunDate: string | null) {
-	const state = { runDate: initialRunDate, probes: 0, builds: 0, nowMs: 0 };
+	const state = { runDate: initialRunDate, probes: 0, builds: 0, nowMs: 0, runId: 1 };
 	const cache = new FeedCache(
 		async () => {
 			state.probes++;
-			return state.runDate;
+			return state.runDate === null ? null : `${state.runDate}:${state.runId}`;
 		},
 		async () => {
 			state.builds++;
@@ -99,4 +99,15 @@ describe('FeedCache', () => {
 		await expect(cache.get(db)).rejects.toThrow('db down');
 		expect((await cache.get(db))?.runDate).toBe('2026-07-07');
 	});
+	it('refreshes evidence when the same date is regenerated', async () => {
+		const { cache, state } = harness('2026-09-05');
+		const first = await cache.get(db);
+		state.runId++;
+		state.nowMs = 61_000;
+		const replacement = await cache.get(db);
+		expect(replacement?.runDate).toBe(first?.runDate);
+		expect(replacement).not.toBe(first);
+		expect(state.builds).toBe(2);
+	});
+
 });

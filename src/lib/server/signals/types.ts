@@ -1,3 +1,4 @@
+import type { ShortSellerAnalysis } from '../../shortSellers.js';
 export interface InsiderTx {
 	partyName: string | null;
 	partyRole: 'executive_board' | 'supervisory_board' | 'related_party' | 'other';
@@ -9,6 +10,7 @@ export interface InsiderTx {
 }
 
 export interface UniverseInstrument {
+	shortSellers: ShortSellerAnalysis;
 	instrumentId: number;
 	issuerId: number;
 	isin: string;
@@ -61,6 +63,7 @@ export interface SignalResult {
 }
 
 export interface SignalDefinition {
+	role: 'discovery' | 'confirmation';
 	slug: string;
 	name: string;
 	version: number;

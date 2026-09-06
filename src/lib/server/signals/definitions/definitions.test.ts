@@ -1,3 +1,4 @@
+import { unknownShortSellers } from '../../../shortSellers.js';
 import { describe, expect, it } from 'vitest';
 import { superSector } from '../sectors.js';
 import type { InsiderTx, UniverseContext, UniverseInstrument } from '../types.js';
@@ -8,6 +9,7 @@ const RUN_DATE = '2026-07-02';
 
 function makeInstrument(overrides: Partial<UniverseInstrument> & { instrumentId: number }): UniverseInstrument {
 	return {
+		shortSellers: unknownShortSellers(),
 		issuerId: overrides.instrumentId,
 		isin: `DE${String(overrides.instrumentId).padStart(10, '0')}`,
 		ticker: `T${overrides.instrumentId}`,

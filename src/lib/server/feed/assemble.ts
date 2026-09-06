@@ -1,3 +1,4 @@
+import { unknownShortSellers, type ShortSellerAnalysis } from '../../shortSellers.js';
 import type {
 	CardData,
 	InsiderRowView,
@@ -42,7 +43,8 @@ export function assembleCards(
 	seriesByInstrument: ReadonlyMap<number, PricePoint[]>,
 	latestByInstrument: ReadonlyMap<number, LatestPriceView>,
 	insidersByIssuer: ReadonlyMap<number, InsiderRowView[]>,
-	newsByIssuer: ReadonlyMap<number, NewsRowView[]>
+	newsByIssuer: ReadonlyMap<number, NewsRowView[]>,
+	shortSellersByIsin: Readonly<Record<string, ShortSellerAnalysis>> = {}
 ): CardData[] {
 	return passers.map((p) => {
 		const valuation = valuationByInstrument.get(p.instrumentId);
@@ -54,6 +56,7 @@ export function assembleCards(
 				? ((pe - peerMedianPe) / peerMedianPe) * 100
 				: null;
 		return {
+			shortSellers: shortSellersByIsin[p.isin] ?? unknownShortSellers(),
 			instrumentId: p.instrumentId,
 			isin: p.isin,
 			wkn: p.wkn,
