@@ -1,0 +1,16 @@
+iShares Core S&P 500 ETF
+Fund Holdings as of,"Sep 03, 2026"
+Inception Date,"May 15, 2000"
+Shares Outstanding,"1,130,500,000.00"
+Stock,"-"
+Bond,"-"
+Cash,"-"
+Other,"-"
+
+Ticker,Name,Sector,Asset Class,Market Value,Weight (%),Notional Value,Quantity,Price,Location,Exchange,Currency,FX Rate,Market Currency,Accrual Date
+"NVDA","NVIDIA","Information Technology","Equity","72,354,135,034.65","8.28","72,354,135,034.65","316,717,597.00","228.45","United States","NASDAQ","USD","1.00","USD","-"
+"AAPL","APPLE","Information Technology","Equity","63,035,307,276.71","7.21","63,035,307,276.71","192,057,851.00","328.21","United States","NASDAQ","USD","1.00","USD","-"
+"MSFT","MICROSOFT","Information Technology","Equity","49,551,670,293.84","5.67","49,551,670,293.84","97,137,282.00","510.12","United States","NASDAQ","USD","1.00","USD","-"
+"USD","USD CASH","Cash and/or Derivatives","Cash","694,123,692.11","0.08","694,123,692.11","694,123,692.00","100.00","United States","-","USD","1.00","USD","-"
+"HOLX","HOLOGIC INC","Health Care","Equity","28,433.88","0.00","28,433.88","2,843,388.00","0.01","United States","NO MARKET (E.G. UNLISTED)","USD","1.00","USD","-"
+"ESU6","S&P500 EMINI SEP 26","Cash and/or Derivatives","Futures","0.00","0.00","2,301,222,062.50","5,935.00","7,754.75","-","Index And Options Market","USD","1.00","USD","-"

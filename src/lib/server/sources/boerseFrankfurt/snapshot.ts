@@ -1,4 +1,4 @@
-import { eq, isNull } from 'drizzle-orm';
+import { eq, isNull, sql } from 'drizzle-orm';
 import { eodPrice, fundamental, indexMembership, instrument } from '../../db/schema.js';
 import { METRICS, type Metric } from '../../fundamentals/metrics.js';
 import type { Job, JobStats } from '../../pipeline/types.js';
@@ -88,6 +88,7 @@ export const snapshotJob: Job = {
 						})
 						.onConflictDoUpdate({
 							target: [fundamental.issuerId, fundamental.metric, fundamental.periodEnd, fundamental.source],
+							targetWhere: sql`${fundamental.source} in ('boerse_frankfurt', 'esef')`,
 							set: { value: value.toString(), publishedDate: ctx.runDate }
 						});
 					fundamentalRows++;

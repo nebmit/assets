@@ -66,7 +66,7 @@ export async function loadFundamentalsSnapshots(
 		db.execute(sql`
 			select distinct on (issuer_id, metric) issuer_id, metric, value
 			from fundamental
-			where issuer_id in (${idList(issuerIds)})
+			where eligible_for_product = true and issuer_id in (${idList(issuerIds)})
 				and published_date <= ${runDate}
 				and metric in (${METRICS.epsBasic}, ${METRICS.marketCap}, ${METRICS.dividendPerShare})
 			order by issuer_id, metric, published_date desc, period_end desc
@@ -185,7 +185,7 @@ export async function loadInsiderDetails(
 		select issuer_id, party_name, party_role, side, instrument_type,
 			amount, price, transaction_date, published_date
 		from insider_transaction
-		where issuer_id in (${idList(issuerIds)})
+		where eligible_for_product = true and issuer_id in (${idList(issuerIds)})
 			and transaction_date > ${windowStart} and transaction_date <= ${runDate}
 			and published_date <= ${runDate}
 		order by issuer_id, transaction_date desc, published_date desc
@@ -223,7 +223,7 @@ export async function loadNewsSummaries(
 				row_number() over (partition by issuer_id order by published_at desc, id desc) as rn,
 				count(*) over (partition by issuer_id) as window_count
 			from news_item
-			where issuer_id in (${idList(issuerIds)})
+			where eligible_for_product = true and issuer_id in (${idList(issuerIds)})
 				and published_date > ${windowStart} and published_date <= ${runDate}
 		) ranked
 		where rn <= ${NEWS_HEADLINE_LIMIT}

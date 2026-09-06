@@ -1,3 +1,8 @@
+import { parseSelection } from '../lib/server/sources/sec/selection.js';
+import type { JobOptions } from '../lib/server/pipeline/types.js';
+import { secReport } from '../lib/server/sources/sec/jobs.js';
+import { cik as normalizeCik, date as secDate } from '../lib/server/sources/sec/parse.js';
+import { transportStats } from '../lib/server/sources/sec/client.js';
 /**
  * Worker entrypoint.
  *   schedule            run the daily pre-market batch on a cron (default)
@@ -8,7 +13,7 @@
 import { Cron } from 'croner';
 import { config } from '../lib/server/config.js';
 import { closeDb, getDb, runMigrations } from '../lib/server/db/index.js';
-import { allJobs, findJob } from '../lib/server/pipeline/jobs.js';
+import { selectJobs } from '../lib/server/pipeline/jobs.js';
 import { runJobs } from '../lib/server/pipeline/runner.js';
 import { signalDefinitions, SURFACED_SLUG } from '../lib/server/signals/engine.js';
 import {
@@ -29,12 +34,21 @@ function fail(message: string): never {
 	throw new Error(message);
 }
 
+function secOptions(): JobOptions {
+	return arg('cik') !== undefined ? { cik: normalizeCik(arg('cik')) } : { issuerSelection: parseSelection(arg('indices')) };
+}
+
 async function runPipeline(jobNames: 'all' | string, runDate: string): Promise<boolean> {
-	const jobs = jobNames === 'all' ? allJobs : [findJob(jobNames) ?? fail(`unknown job "${jobNames}"`)];
-	const results = await runJobs(getDb(), jobs, runDate);
+	const scheduled = (process.argv[2] ?? 'schedule') === 'schedule';
+	const sunday = new Date(runDate + 'T12:00:00Z').getUTCDay() === 0;
+	const jobs = selectJobs(jobNames, arg('source'), scheduled && sunday);
+	const hasSec = jobs.some((job) => job.source === 'sec');
+	const before = { ...transportStats }, started = Date.now();
+	const results = await runJobs(getDb(), jobs, runDate, hasSec ? secOptions() : {});
+	if (hasSec) console.log(JSON.stringify({ sec_requests: transportStats.requests - before.requests, sec_bytes: transportStats.bytes - before.bytes, elapsed_ms: Date.now() - started }));
 	const failures = results.filter((r) => !r.ok).length;
 	console.log(`run ${runDate}: ${results.length - failures}/${results.length} jobs succeeded`);
-	if (jobNames === 'all') {
+	if (jobNames === 'all' && !arg('source')) {
 		// Bounded raw-archive disk usage; a cleanup hiccup never fails the run.
 		try {
 			const removed = await pruneRawArchive(runDate);
@@ -48,7 +62,8 @@ async function runPipeline(jobNames: 'all' | string, runDate: string): Promise<b
 
 async function schedule(): Promise<void> {
 	await runMigrations();
-	const { INGEST_CRON, TZ } = config();
+	const settings = config();
+	const { INGEST_CRON, TZ } = settings;
 	const cron = new Cron(INGEST_CRON, { timezone: TZ, protect: true }, async () => {
 		try {
 			await runPipeline('all', isoDate(new Date(), TZ));
@@ -71,6 +86,12 @@ async function schedule(): Promise<void> {
 
 async function report(): Promise<void> {
 	const db = getDb();
+	if (arg('source') === 'sec') {
+		const data = await secReport({ db, runDate: arg('date') ?? isoDate(new Date(), config().TZ), log: console.log, ...secOptions() });
+		if (arg('format') && !['json', 'text'].includes(arg('format')!)) fail('format must be json or text');
+		console.log(JSON.stringify(data, null, arg('format') === 'json' ? undefined : 2));
+		return;
+	}
 	const runDate = arg('date') ?? (await latestRunDate(db));
 	if (!runDate) throw new Error('no signal runs found — run the pipeline first');
 	const top = Number(arg('top') ?? 10);
@@ -104,6 +125,14 @@ async function report(): Promise<void> {
 
 async function main(): Promise<void> {
 	const command = process.argv[2] ?? 'schedule';
+	const jobs = selectJobs(arg('job') ?? 'all', arg('source'));
+	const hasSec = jobs.some((job) => job.source === 'sec');
+	if ((arg('cik') !== undefined || arg('indices') !== undefined) && !hasSec) fail('--cik and --indices require a run containing SEC jobs');
+	if (arg('cik') !== undefined && arg('indices') !== undefined) fail('choose --cik or --indices');
+	if (arg('limit') !== undefined || arg('seed') !== undefined) fail('use --indices to select the SEC universe');
+	if (hasSec) secOptions();
+	if (arg('date')) secDate.parse(arg('date'));
+	if (command === 'schedule' && arg('job')) fail('schedule selects job groups with --source, not --job');
 	switch (command) {
 		case 'migrate':
 			await runMigrations();

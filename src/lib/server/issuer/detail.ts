@@ -153,7 +153,7 @@ export async function issuerDetail(db: Db, isin: string, runDate: string): Promi
 		db.execute(sql`
 			select metric, value, period_end, published_date
 			from fundamental
-			where issuer_id = ${target.issuer_id}
+			where eligible_for_product = true and issuer_id = ${target.issuer_id}
 				and published_date <= ${runDate}
 				and metric in (${METRICS.epsBasic}, ${METRICS.marketCap}, ${METRICS.dividendPerShare})
 			order by metric, period_end
@@ -167,14 +167,14 @@ export async function issuerDetail(db: Db, isin: string, runDate: string): Promi
 			select issuer_id, party_name, party_role, side, instrument_type,
 				amount, price, transaction_date, published_date
 			from insider_transaction
-			where issuer_id = ${target.issuer_id} and published_date <= ${runDate}
+			where eligible_for_product = true and issuer_id = ${target.issuer_id} and published_date <= ${runDate}
 			order by transaction_date desc, published_date desc, id desc
 			limit ${INSIDER_HISTORY_LIMIT}
 		`) as unknown as Promise<Parameters<typeof toDealingView>[0][]>,
 		db.execute(sql`
 			select headline, published_at
 			from news_item
-			where issuer_id = ${target.issuer_id} and published_date <= ${runDate}
+			where eligible_for_product = true and issuer_id = ${target.issuer_id} and published_date <= ${runDate}
 			order by published_at desc, id desc
 			limit ${NEWS_LIMIT}
 		`) as unknown as Promise<{ headline: string; published_at: string | Date }[]>

@@ -1,0 +1,17 @@
+iShares Core S&P Mid-Cap ETF
+Fund Holdings as of,"Sep 03, 2026"
+Inception Date,"May 22, 2000"
+Shares Outstanding,"1,660,000,000.00"
+Stock,"-"
+Bond,"-"
+Cash,"-"
+Other,"-"
+
+Ticker,Name,Type,Sector,Asset Class,Market Value,Notional Value,Quantity,Price,Location,Exchange,Currency,FX Rate,Market Currency,Accrual Date,Market Weight,Notional Weight
+"TWLO","TWILIO CLASS A","EQUITY","Information Technology","Equity","1,280,057,244.48","1,280,057,244.48","5,322,926.00","240.48","United States","NYSE","USD","1.00","USD","-","1.02","1.02"
+"ILMN","ILLUMINA INC","EQUITY","Health Care","Equity","1,176,284,008.64","1,176,284,008.64","5,306,704.00","221.66","United States","NASDAQ","USD","1.00","USD","-","0.93","0.93"
+"FTI","TECHNIPFMC PLC","EQUITY","Energy","Equity","1,119,806,127.44","1,119,806,127.44","13,983,593.00","80.08","United States","NYSE","USD","1.00","USD","-","0.89","0.89"
+"FAU6","S&P MID 400 EMINI SEP 26","INDEX","Cash and/or Derivatives","Futures","0.00","185,347,400.00","490.00","3,782.60","-","Index And Options Market","USD","1.00","USD","-","-","0.15"
+"USD","USD CASH","CASH","Cash and/or Derivatives","Cash","54,462,651.64","54,462,651.64","300,647.00","100.00","United States","-","USD","1.00","USD","-","0.04","0.04"
+"EQH","EQUITABLE HOLDINGS","SWAP","Financials","Equity","0.00","21,723,855.00","405,750.00","53.54","United States","NYSE","USD","1.00","USD","-","-","0.02"
+"FNF","FIDELITY NATIONAL FINANCIAL INC","SWAP","Financials","Equity","0.00","10,854,164.16","229,572.00","47.28","United States","NYSE","USD","1.00","USD","-","-","0.01"

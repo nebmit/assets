@@ -1,3 +1,4 @@
+import { sql } from 'drizzle-orm';
 import type { ParsedShortPosition } from '../sources/bundesanzeiger/parse.js';
 import type { SnapshotDiagnostics } from '../shortSellers/analysis.js';
 import {
@@ -26,7 +27,7 @@ export const partyRoleEnum = pgEnum('party_role', [
 	'related_party',
 	'other'
 ]);
-export const fundamentalSourceEnum = pgEnum('fundamental_source', ['boerse_frankfurt', 'esef']);
+export const fundamentalSourceEnum = pgEnum('fundamental_source', ['boerse_frankfurt', 'esef', 'sec']);
 export const runStatusEnum = pgEnum('run_status', ['running', 'success', 'error']);
 
 /** Legal entity that issues instruments and files reports (1:N with instrument). */
@@ -36,11 +37,36 @@ export const issuer = pgTable(
 		id: serial('id').primaryKey(),
 		name: text('name').notNull(),
 		lei: text('lei'),
+		cik: text('cik').unique(),
+		secMetadata: jsonb('sec_metadata').$type<Record<string, unknown>>(),
 		sector: text('sector'),
 		createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow()
 	},
 	(t) => [uniqueIndex('issuer_lei_idx').on(t.lei)]
 );
+
+/** Durable filing work queue and evidence; independent of instrument identity. */
+export const sourceFiling = pgTable('source_filing', {
+	id: serial('id').primaryKey(),
+	source: text('source').notNull(),
+	externalId: text('external_id').notNull(),
+	issuerId: integer('issuer_id').references(() => issuer.id),
+	form: text('form').notNull(),
+	filedDate: date('filed_date').notNull(),
+	reportDate: date('report_date'),
+	acceptedAt: timestamp('accepted_at', { withTimezone: true }),
+	observedAt: timestamp('observed_at', { withTimezone: true }).notNull().defaultNow(),
+	url: text('url').notNull(),
+	status: text('status').notNull().default('pending'),
+	attempts: integer('attempts').notNull().default(0),
+	error: text('error'),
+	metadata: jsonb('metadata').$type<Record<string, unknown>>().notNull().default({}),
+	updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow()
+}, (t) => [
+	uniqueIndex('source_filing_external_idx').on(t.source, t.externalId),
+	index('source_filing_work_idx').on(t.source, t.status),
+	index('source_filing_issuer_idx').on(t.issuerId, t.filedDate)
+]);
 
 /** Tradeable equity instrument. */
 export const instrument = pgTable(
@@ -117,13 +143,23 @@ export const fundamental = pgTable(
 		metric: text('metric').notNull(),
 		value: numeric('value').notNull(),
 		currency: text('currency'),
+		periodStart: date('period_start'),
+		unit: text('unit'),
+		reportingBasis: text('reporting_basis'),
+		sourceRecordId: text('source_record_id'),
+		filingId: integer('filing_id').references(() => sourceFiling.id),
+		publishedAt: timestamp('published_at', { withTimezone: true }),
+		observedAt: timestamp('observed_at', { withTimezone: true }),
+		metadata: jsonb('metadata').$type<Record<string, unknown>>(),
+		eligibleForProduct: boolean('eligible_for_product').notNull().default(true),
 		periodType: text('period_type').notNull().default('LATEST'),
 		periodEnd: date('period_end').notNull(),
 		publishedDate: date('published_date').notNull(),
 		source: fundamentalSourceEnum('source').notNull()
 	},
 	(t) => [
-		uniqueIndex('fundamental_natural_key_idx').on(t.issuerId, t.metric, t.periodEnd, t.source)
+		uniqueIndex('fundamental_natural_key_idx').on(t.issuerId, t.metric, t.periodEnd, t.source).where(sql`${t.source} in ('boerse_frankfurt', 'esef')`),
+		uniqueIndex('fundamental_source_record_idx').on(t.source, t.sourceRecordId)
 	]
 );
 
@@ -132,6 +168,13 @@ export const insiderTransaction = pgTable(
 	'insider_transaction',
 	{
 		id: serial('id').primaryKey(),
+		source: text('source').notNull().default('bafin'),
+		sourceRecordId: text('source_record_id'),
+		filingId: integer('filing_id').references(() => sourceFiling.id),
+		publishedAt: timestamp('published_at', { withTimezone: true }),
+		observedAt: timestamp('observed_at', { withTimezone: true }),
+		amendmentStatus: text('amendment_status'),
+		eligibleForProduct: boolean('eligible_for_product').notNull().default(true),
 		issuerId: integer('issuer_id').references(() => issuer.id),
 		isin: text('isin'),
 		issuerNameRaw: text('issuer_name_raw').notNull(),
@@ -204,6 +247,8 @@ export const newsItem = pgTable(
 	'news_item',
 	{
 		id: serial('id').primaryKey(),
+		filingId: integer('filing_id').references(() => sourceFiling.id),
+		eligibleForProduct: boolean('eligible_for_product').notNull().default(true),
 		source: text('source').notNull(),
 		externalId: text('external_id').notNull(),
 		instrumentId: integer('instrument_id').references(() => instrument.id),

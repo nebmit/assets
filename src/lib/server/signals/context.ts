@@ -46,7 +46,7 @@ export async function buildContext(db: Db, runDate: string): Promise<UniverseCon
 	const fundamentals = (await db.execute(sql`
 		select distinct on (issuer_id, metric) issuer_id, metric, value
 		from fundamental
-		where published_date <= ${runDate}
+		where eligible_for_product = true and published_date <= ${runDate}
 			and metric in (${METRICS.epsBasic}, ${METRICS.marketCap}, ${METRICS.dividendPerShare}, ${METRICS.priceToBook})
 		order by issuer_id, metric, published_date desc, period_end desc
 	`)) as unknown as { issuer_id: number; metric: string; value: string }[];
@@ -71,7 +71,7 @@ export async function buildContext(db: Db, runDate: string): Promise<UniverseCon
 		select issuer_id, party_name, party_role, side, instrument_type,
 			amount, transaction_date, published_date
 		from insider_transaction
-		where issuer_id is not null
+		where eligible_for_product = true and issuer_id is not null
 			and transaction_date > ${windowStart} and transaction_date <= ${runDate}
 			and published_date <= ${runDate}
 	`)) as unknown as {

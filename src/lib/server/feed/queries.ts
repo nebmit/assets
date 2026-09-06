@@ -343,7 +343,7 @@ async function loadInsiders(
 					order by transaction_date desc, id desc
 				) as rn
 			from insider_transaction
-			where issuer_id in (${idList(issuerIds)})
+			where eligible_for_product = true and issuer_id in (${idList(issuerIds)})
 				and published_date <= ${runDate}
 				and side in ('buy', 'sell')
 		) ranked
@@ -388,7 +388,7 @@ async function loadNews(
 					order by published_at desc, id desc
 				) as rn
 			from news_item
-			where issuer_id in (${idList(issuerIds)}) and published_date <= ${runDate}
+			where eligible_for_product = true and issuer_id in (${idList(issuerIds)}) and published_date <= ${runDate}
 		) ranked
 		where rn <= 2
 		order by issuer_id, published_at desc

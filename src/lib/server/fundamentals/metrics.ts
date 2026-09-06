@@ -4,6 +4,13 @@
  */
 export const METRICS = {
 	epsBasic: 'eps_basic',
+	epsDiluted: 'eps_diluted',
+	weightedAverageSharesBasic: 'weighted_average_shares_basic',
+	weightedAverageSharesDiluted: 'weighted_average_shares_diluted',
+	equity: 'equity',
+	revenue: 'revenue',
+	netIncome: 'net_income',
+	operatingCashFlow: 'operating_cash_flow',
 	/** Not populated by the BF snapshot; arrives with the ESEF pipeline. */
 	sharesOutstanding: 'shares_outstanding',
 	marketCap: 'market_cap',

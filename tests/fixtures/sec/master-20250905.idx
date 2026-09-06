@@ -1,0 +1,13 @@
+Description:           Daily Index of EDGAR Dissemination Feed
+Last Data Received:    Sep 5, 2025
+Comments:              webmaster@sec.gov
+Anonymous FTP:         ftp://ftp.sec.gov/edgar/
+ 
+CIK|Company Name|Form Type|Date Filed|File Name
+--------------------------------------------------------------------------------
+1000045|OLD MARKET CAPITAL Corp|4|20250905|edgar/data/1000045/0001903601-25-000081.txt
+1018840|ABERCROMBIE & FITCH CO /DE/|10-Q|20250905|edgar/data/1018840/0001018840-25-000045.txt
+100493|TYSON FOODS, INC.|8-K|20250905|edgar/data/100493/0000100493-25-000087.txt
+1065837|SKECHERS USA INC|4/A|20250905|edgar/data/1065837/0000950170-25-113151.txt
+100378|TWIN DISC INC|10-K|20250905|edgar/data/100378/0001437749-25-028487.txt
+1000228|HENRY SCHEIN INC|CORRESP|20250523|edgar/data/1000228/0001193125-25-125814.txt

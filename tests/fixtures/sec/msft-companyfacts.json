@@ -1,0 +1,38 @@
+{
+  "cik": 789019,
+  "entityName": "MICROSOFT CORPORATION",
+  "facts": {
+    "us-gaap": {
+      "EarningsPerShareBasic": {
+        "label": "Earnings Per Share, Basic",
+        "description": "The amount of net income (loss) for the period per each share of common stock or unit outstanding during the reporting period.",
+        "units": {
+          "USD/shares": [
+            {
+              "start": "2012-07-01",
+              "end": "2013-06-30",
+              "val": 2.61,
+              "accn": "0001193125-15-353706",
+              "fy": null,
+              "fp": null,
+              "form": "8-K",
+              "filed": "2015-10-27",
+              "frame": "CY2013"
+            },
+            {
+              "start": "2024-07-01",
+              "end": "2025-06-30",
+              "val": 13.7,
+              "accn": "0001193125-26-323660",
+              "fy": 2026,
+              "fp": "FY",
+              "form": "10-K",
+              "filed": "2026-07-29",
+              "frame": "CY2025"
+            }
+          ]
+        }
+      }
+    }
+  }
+}

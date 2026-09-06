@@ -130,7 +130,7 @@ envelope pattern and constraints).
 ```bash
 docker compose up -d postgres   # local DB
 npm install
-npm run worker -- run           # migrate + full pipeline for today
+npm run worker -- run           # migrate + German and SEC pipelines for today
 npm run worker -- run --job=signals --date=2026-07-01
 npm run worker -- report --top=10
 npm run seed:demo               # DESTRUCTIVE dev seed: demo universe + real signal run
@@ -141,6 +141,8 @@ npm test                        # unit tests; set TEST_DATABASE_URL for the DB i
 Configuration via environment (see `.env.example`): `DATABASE_URL`,
 `RAW_DATA_DIR` (raw source payload archive), `INGEST_CRON`, `TZ`, plus the
 SSO/OAuth wiring `AUTH_ORIGIN`, `RESOURCE_URL`, `INTROSPECTION_SECRET`.
+
+The daily worker includes SEC ingestion for the S&P 500 and S&P MidCap 400 tracking-fund universe. Both source groups use the same schedule, defaulting to 06:30 Europe/Berlin. German ingestion and signal results finish before SEC backfill work. `--source=sec` is an optional source filter, not required to enable SEC. See [SEC ingestion](docs/sec-ingestion.md) for coverage, index selection and replay commands.
 
 ## Production
 
