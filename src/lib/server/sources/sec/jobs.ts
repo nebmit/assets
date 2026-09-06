@@ -5,7 +5,7 @@ import { z } from 'zod';
 import { issuer, sourceFiling, ingestionRun } from '../../db/schema.js';
 import type { Job, JobContext, JobStats } from '../../pipeline/types.js';
 import { addDays } from '../../util.js';
-import { archiveEvidence, fetchSecText, readZip, SecAccessError } from './client.js';
+import { archiveEvidence, fetchFinancialSubmission, fetchSecText, readZip, SecAccessError } from './client.js';
 import { cik, classifyIssuer, financialForm, ownershipForm, parseDirectory, parseMasterIndex, parseInsiderDataset, parseSubmissions, parseTickers, type Listing } from './parse.js';
 import { persistFacts, persistFiling, rememberFiling, updateIssuerMetadata } from './store.js';
 
@@ -169,9 +169,14 @@ async function processFilings(ctx: JobContext, ownership: boolean): Promise<JobS
 	for (const f of rows) {
 		if (f.filedDate > ctx.runDate || ownershipForm.test(f.form) !== ownership) continue;
 		try {
-			const text = await fetchSecText(f.url);
-			const evidence = await archiveEvidence(f.url, text);
-			await persistFiling(ctx, f, text, evidence); processed++;
+			if (ownership) {
+				const text = await fetchSecText(f.url);
+				await persistFiling(ctx, f, text, await archiveEvidence(f.url, text));
+			} else {
+				const { header, evidence } = await fetchFinancialSubmission(f.url, f.externalId);
+				await persistFiling(ctx, f, header, evidence);
+			}
+			processed++;
 			if (processed % 100 === 0) ctx.log(`processed ${processed} ${ownership ? 'ownership' : 'financial/news'} filings; ${failed} failed`);
 		} catch (error) {
 			if (error instanceof SecAccessError) throw error;

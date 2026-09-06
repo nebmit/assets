@@ -1,3 +1,4 @@
+import { parseFinancialHeader } from './filingHeader.js';
 import { and, eq, sql } from 'drizzle-orm';
 import type { JobContext } from '../../pipeline/types.js';
 import { fundamental, insiderTransaction, issuer, newsItem, sourceFiling } from '../../db/schema.js';
@@ -46,11 +47,7 @@ export async function persistFiling(ctx: JobContext, filing: Filing, content: st
 			issuerId = target?.id ?? null;
 			if (parsed.acceptedAt) acceptedAt = new Date(parsed.acceptedAt);
 		} else {
-			if (!/<SEC-DOCUMENT>|<DOCUMENT>/i.test(content)) throw new Error('invalid complete SEC submission');
-			const headerAcc = /ACCESSION NUMBER:\s*(\d{10}-\d{2}-\d{6})/.exec(content)?.[1];
-			if (headerAcc !== filing.externalId) throw new Error('filing accession mismatch');
-			const time = /<ACCEPTANCE-DATETIME>(\d{14})/.exec(content)?.[1];
-			if (time) acceptedAt = new Date(acceptanceTime(time));
+			acceptedAt = parseFinancialHeader(content, filing.externalId) ?? acceptedAt;
 		}
 		const time = publicTime({ ...filing, acceptedAt });
 		const isAmendment = filing.form.endsWith('/A');
