@@ -6,7 +6,7 @@ export interface ShortHolder {
 }
 
 export interface ShortSellerAnalysis {
-	status: 'present' | 'none_disclosed' | 'unknown';
+	status: 'present' | 'none_disclosed' | 'unknown' | 'unavailable';
 	freshness: 'fresh' | 'stale' | 'unavailable';
 	snapshotId: number | null;
 	capturedAt: string | null;

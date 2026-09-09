@@ -45,7 +45,7 @@
 	let copyReset: ReturnType<typeof setTimeout> | undefined;
 	let mobileSearchOpen = $state(false);
 	let mobileMenuOpen = $state(false);
-	let mobileSearchInput: HTMLInputElement | undefined;
+	let mobileSearchInput = $state<HTMLInputElement>();
 
 	const navTabs = $derived([
 		{ value: "overview", label: "Overview" },
@@ -341,7 +341,7 @@
 				bind:this={mobileSearchInput}
 				type="text"
 				bind:value={search}
-				placeholder="Name, ISIN or WKN"
+				placeholder="Name, ticker or identifier"
 				class="mobile-search-input h-[30px] w-full min-w-0 rounded-sm border border-border-default bg-surface-card px-[10px] font-sans text-xs text-text-primary outline-none placeholder:text-text-muted"
 				onkeydown={(event) => {
 					if (event.key === "Escape" && search.trim() === "") {
@@ -385,7 +385,7 @@
 
 	<span class="flex-1"></span>
 	<div class="w-full order-last sm:order-none sm:w-[230px]">
-		<Input bind:value={search} placeholder="Name, ISIN or WKN" />
+		<Input bind:value={search} placeholder="Name, ticker or identifier" />
 	</div>
 	<span class="hidden h-5 w-px bg-border-subtle sm:block"></span>
 	<Button

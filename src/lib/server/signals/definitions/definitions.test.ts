@@ -9,13 +9,13 @@ const RUN_DATE = '2026-07-02';
 
 function makeInstrument(overrides: Partial<UniverseInstrument> & { instrumentId: number }): UniverseInstrument {
 	return {
-		shortSellers: unknownShortSellers(),
+		shortSellers: unknownShortSellers(), assetId: 'test-asset', currency: 'EUR',
 		issuerId: overrides.instrumentId,
 		isin: `DE${String(overrides.instrumentId).padStart(10, '0')}`,
 		ticker: `T${overrides.instrumentId}`,
 		name: `Company ${overrides.instrumentId}`,
 		sector: 'Industrial products',
-		indexName: 'DAX',
+		sizeBand: 'large',
 		close: 100,
 		closeDate: RUN_DATE,
 		epsBasic: 10,
@@ -34,10 +34,10 @@ function makeInstrument(overrides: Partial<UniverseInstrument> & { instrumentId:
 function makeTx(overrides: Partial<InsiderTx>): InsiderTx {
 	return {
 		partyName: 'Buyer',
-		partyRole: 'executive_board',
+		partyRole: 'executive',
 		side: 'buy',
-		instrumentType: 'Aktie',
-		amount: 400_000,
+		instrumentType: 'common_share',
+		amount: 400_000, amountEur: overrides.amount === undefined ? 400_000 : overrides.amount, currency: 'EUR', buyerKey: overrides.buyerKey ?? overrides.partyName ?? 'Buyer',
 		transactionDate: '2026-06-30',
 		publishedDate: '2026-07-01',
 		...overrides
@@ -60,8 +60,8 @@ describe('insiderConvictionSignal', () => {
 
 	it('scales the floor by cap band: the same buy matters more in the SDAX', () => {
 		const buy = makeTx({ amount: 40_000 });
-		const dax = makeInstrument({ instrumentId: 1, indexName: 'DAX', insiderTx: [buy] });
-		const sdax = makeInstrument({ instrumentId: 2, indexName: 'SDAX', insiderTx: [buy] });
+		const dax = makeInstrument({ instrumentId: 1, sizeBand: 'large', insiderTx: [buy] });
+		const sdax = makeInstrument({ instrumentId: 2, sizeBand: 'small', insiderTx: [buy] });
 		const ctx = ctxOf([dax, sdax]);
 		expect(insiderConvictionSignal.evaluate(dax, ctx).passedGate).toBe(false);
 		expect(insiderConvictionSignal.evaluate(sdax, ctx).passedGate).toBe(true);
@@ -197,6 +197,16 @@ describe('relativeValueSignal', () => {
 		}
 	});
 
+	it('keeps peer benchmarks for missing and negative subject earnings', () => {
+		const peers = [2, 3, 4, 5, 6].map((instrumentId) => makeInstrument({ instrumentId, close: 200 }));
+		for (const epsBasic of [null, -2]) {
+			const subject = makeInstrument({ instrumentId: 1, epsBasic });
+			const result = relativeValueSignal.evaluate(subject, ctxOf([subject, ...peers]));
+			expect(result.passedGate).toBe(false);
+			expect(result.rationale).toMatchObject({ pe: null, peer_median_pe: 20, peer_count: 5 });
+		}
+	});
+
 	it('requires a material discount — merely rankable is not cheap', () => {
 		// P/E 18 vs median 20 = 10% discount: valid, but not material
 		const slightly = makeInstrument({ instrumentId: 1, close: 180 });
@@ -243,7 +253,7 @@ describe('relativeValueSignal', () => {
 		const inst = makeInstrument({ instrumentId: 1, sector: 'Software', close: 50 });
 		const daxPeers = [2, 3].map((id) => makeInstrument({ instrumentId: id, sector: 'Industrial products' }));
 		const ctx = ctxOf([inst, ...daxPeers]);
-		expect(relativeValueSignal.evaluate(inst, ctx).rationale.peer_group).toBe('index:DAX');
+		expect(relativeValueSignal.evaluate(inst, ctx).rationale.peer_group).toBe('size:large');
 	});
 });
 

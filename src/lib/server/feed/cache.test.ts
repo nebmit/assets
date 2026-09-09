@@ -10,7 +10,7 @@ const db = {} as Db;
 function payloadFor(runDate: string): FeedPayload {
 	const cardsByView = {} as Record<FeedViewSlug, CardData[]>;
 	for (const view of FEED_VIEWS) cardsByView[view.slug] = [];
-	return { shortSellersByIsin: {}, runDate, universeSize: 100, views: [...FEED_VIEWS], cardsByView };
+	return { shortSellersByAssetId: {}, catalog: [], runDate, universeSize: 100, views: [...FEED_VIEWS], cardsByView };
 }
 
 /** Test harness: counting stubs for the two DB operations plus a manual clock. */

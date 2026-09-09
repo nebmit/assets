@@ -32,7 +32,8 @@ export function parseIndexHoldings(text: string, expectedFund: string): { asOf: 
 	const holdings = new Map<string, IndexHolding>();
 	for (const row of rows) {
 		if (row['Asset Class'] !== 'Equity' || (row.Type !== undefined && row.Type !== 'EQUITY') || !['NASDAQ', 'NYSE', 'Nyse Mkt', 'Cboe BZX'].includes(row.Exchange)) continue;
-		const ticker = row.Ticker?.trim(), name = row.Name?.trim();
+		// iShares also renders share classes as "MOG A" / "BRK B". Keep the class separator.
+		const ticker = row.Ticker?.trim().replace(/^([A-Z0-9]+)[ \t]+([A-Z])$/, '$1.$2'), name = row.Name?.trim();
 		if (!ticker || !name || !/^[A-Z0-9]+(?:[.\-][A-Z0-9]+)?$/.test(ticker)) throw new Error(`Invalid equity holding ticker: ${ticker}`);
 		if (holdings.has(ticker)) throw new Error(`Duplicate equity holding: ${ticker}`);
 		holdings.set(ticker, { ticker, name });

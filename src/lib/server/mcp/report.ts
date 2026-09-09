@@ -1,4 +1,5 @@
-import { loadRunShortSellers } from '../shortSellers/queries.js';
+import { savedSnapshots } from '../assets/snapshot.js';
+import { addDays } from '../util.js';
 import { unknownShortSellers, type ShortSellerAnalysis } from '../../shortSellers.js';
 import { and, eq } from 'drizzle-orm';
 import type { Db } from '../db/index.js';
@@ -6,9 +7,8 @@ import { instrument, issuer, signal, signalDefinition, signalRun } from '../db/s
 import type { ReportRow, SignalReport } from '../signals/report.js';
 import {
 	loadComponentBreakdowns,
-	loadFundamentalsSnapshots,
-	loadInsiderDetails,
-	loadNewsSummaries,
+	fundamentalsView,
+	toDealingView,
 	sectorConcentration,
 	type ComponentBreakdown,
 	type FundamentalsSnapshot,
@@ -17,6 +17,7 @@ import {
 } from './enrich.js';
 
 export interface EnrichedReportRow extends ReportRow {
+	coverage: Record<string, { state: string; reason: string | null }>;
 	shortSellers: ShortSellerAnalysis;
 	superSector: string | null;
 	/** Other issuers in the same super-sector passing this signal in the same run. */
@@ -42,14 +43,19 @@ export async function enrichedSignalReport(
 	slug: string,
 	runDate: string,
 	top: number,
-	/** ISINs to hide (a user's ignore list); `passed` reflects the exclusion. */
-	excludeIsins?: ReadonlySet<string>
+	/** Asset IDs to hide (a user's ignore list); `passed` reflects the exclusion. */
+	excludeAssetIds?: ReadonlySet<string>
 ): Promise<EnrichedSignalReport | null> {
-	const [run] = await db.select().from(signalRun).where(eq(signalRun.runDate, runDate));
+	return db.transaction((tx) => readReport(tx, slug, runDate, top, excludeAssetIds), { isolationLevel: 'repeatable read', accessMode: 'read only' });
+}
+
+async function readReport(db: Db, slug: string, runDate: string, top: number, excludeAssetIds?: ReadonlySet<string>): Promise<EnrichedSignalReport | null> {
+	const [run] = await db.select().from(signalRun).where(and(eq(signalRun.runDate, runDate), eq(signalRun.status, 'success')));
 	if (!run) return null;
 	const [definition] = await db.select().from(signalDefinition).where(eq(signalDefinition.slug, slug));
 	if (!definition) return null;
 
+	const snapshots = new Map((await savedSnapshots(db, runDate)).map((s) => [s.instrumentId, s]));
 	const allRows = await db
 		.select({
 			rank: signal.rank,
@@ -58,7 +64,7 @@ export async function enrichedSignalReport(
 			rationale: signal.rationale,
 			instrumentId: signal.instrumentId,
 			issuerId: instrument.issuerId,
-			ticker: instrument.ticker,
+			assetId: instrument.assetId,
 			isin: instrument.isin,
 			name: issuer.name,
 			sector: issuer.sector
@@ -73,23 +79,17 @@ export async function enrichedSignalReport(
 
 	// Concentration counts the FULL passer set: how crowded a sector is, is a
 	// market fact and must not shrink with a personal ignore list or `limit`.
+	for (const row of allRows) { const frozen = snapshots.get(row.instrumentId); if (frozen) { row.name = frozen.name; row.isin = frozen.isin; row.sector = frozen.sector; } }
 	const concentration = sectorConcentration(allRows);
 
 	const rows =
-		excludeIsins === undefined || excludeIsins.size === 0
+		excludeAssetIds === undefined || excludeAssetIds.size === 0
 			? allRows
-			: allRows.filter((r) => !excludeIsins.has(r.isin));
+			: allRows.filter((r) => !excludeAssetIds.has(r.assetId));
 	const visible = rows.slice(0, top);
 
 	const instrumentIds = visible.map((r) => r.instrumentId);
-	const issuerIds = [...new Set(visible.map((r) => r.issuerId))];
-	const [fundamentals, components, insiders, news, shorts] = await Promise.all([
-		loadFundamentalsSnapshots(db, visible, runDate),
-		loadComponentBreakdowns(db, run.id, instrumentIds),
-		loadInsiderDetails(db, issuerIds, runDate),
-		loadNewsSummaries(db, issuerIds, runDate),
-		loadRunShortSellers(db, run.id)
-	]);
+	const components = await loadComponentBreakdowns(db, run.id, instrumentIds);
 
 	return {
 		signal: slug,
@@ -97,11 +97,15 @@ export async function enrichedSignalReport(
 		universeSize: run.universeSize,
 		passed: rows.length,
 		top: visible.map((r) => {
-			const sector = concentration.get(r.isin);
+			const sector = concentration.get(r.assetId);
+			const snapshot = snapshots.get(r.instrumentId);
+			const news = snapshot?.news.filter((n) => n.publishedAt.slice(0, 10) > addDays(runDate, -30)) ?? [];
 			return {
-				shortSellers: shorts[r.isin] ?? unknownShortSellers(),
+				coverage: snapshots.get(r.instrumentId)?.coverage ?? {},
+				shortSellers: snapshots.get(r.instrumentId)?.shortSellers ?? unknownShortSellers(),
 				rank: r.rank as number,
-				ticker: r.ticker,
+				ticker: snapshots.get(r.instrumentId)?.ticker ?? null,
+				assetId: r.assetId, currency: snapshots.get(r.instrumentId)?.currency ?? '',
 				isin: r.isin,
 				name: r.name,
 				score: Number(r.score),
@@ -109,10 +113,10 @@ export async function enrichedSignalReport(
 				rationale: (r.rationale ?? {}) as Record<string, unknown>,
 				superSector: sector?.superSector ?? null,
 				sectorPeersFiring: sector?.peersFiring ?? null,
-				fundamentals: fundamentals.get(r.instrumentId) ?? null,
+				fundamentals: snapshot ? fundamentalsView(snapshot) : null,
 				components: components.get(r.instrumentId) ?? null,
-				insiders: insiders.get(r.issuerId) ?? [],
-				news: news.get(r.issuerId) ?? null
+				insiders: snapshot?.insiderHistory.filter((t) => t.transactionDate > addDays(runDate, -30)).map((t) => toDealingView(t, runDate)) ?? [],
+				news: { windowCount: news.length, latest: news.slice(0, 3) }
 			};
 		})
 	};

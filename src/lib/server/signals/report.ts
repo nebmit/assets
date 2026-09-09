@@ -1,11 +1,14 @@
-import { and, desc, eq, max, sql } from 'drizzle-orm';
+import { savedSnapshots } from '../assets/snapshot.js';
+import { and, eq, max, sql } from 'drizzle-orm';
 import type { Db } from '../db/index.js';
 import { instrument, issuer, signal, signalDefinition, signalRun } from '../db/schema.js';
 
 export interface ReportRow {
 	rank: number;
 	ticker: string | null;
-	isin: string;
+	assetId: string;
+	isin: string | null;
+	currency: string;
 	name: string;
 	score: number;
 	percentile: number;
@@ -21,7 +24,7 @@ export interface SignalReport {
 }
 
 export async function latestRunDate(db: Db): Promise<string | null> {
-	const [row] = await db.select({ runDate: max(signalRun.runDate) }).from(signalRun);
+	const [row] = await db.select({ runDate: max(signalRun.runDate) }).from(signalRun).where(eq(signalRun.status, 'success'));
 	return row?.runDate ?? null;
 }
 
@@ -30,10 +33,14 @@ export async function signalReport(
 	slug: string,
 	runDate: string,
 	top: number,
-	/** ISINs to hide (a user's ignore list); `passed` reflects the exclusion. */
-	excludeIsins?: ReadonlySet<string>
+	/** Asset IDs to hide (a user's ignore list); `passed` reflects the exclusion. */
+	excludeAssetIds?: ReadonlySet<string>
 ): Promise<SignalReport | null> {
-	const [run] = await db.select().from(signalRun).where(eq(signalRun.runDate, runDate));
+	return db.transaction((tx) => readReport(tx, slug, runDate, top, excludeAssetIds), { isolationLevel: 'repeatable read', accessMode: 'read only' });
+}
+
+async function readReport(db: Db, slug: string, runDate: string, top: number, excludeAssetIds?: ReadonlySet<string>): Promise<SignalReport | null> {
+	const [run] = await db.select().from(signalRun).where(and(eq(signalRun.runDate, runDate), eq(signalRun.status, 'success')));
 	if (!run) return null;
 	const [definition] = await db.select().from(signalDefinition).where(eq(signalDefinition.slug, slug));
 	if (!definition) return null;
@@ -44,7 +51,8 @@ export async function signalReport(
 			score: signal.score,
 			percentile: signal.percentile,
 			rationale: signal.rationale,
-			ticker: instrument.ticker,
+			instrumentId: instrument.id,
+			assetId: instrument.assetId,
 			isin: instrument.isin,
 			name: issuer.name
 		})
@@ -56,10 +64,11 @@ export async function signalReport(
 		)
 		.orderBy(signal.rank);
 	const rows =
-		excludeIsins === undefined || excludeIsins.size === 0
+		excludeAssetIds === undefined || excludeAssetIds.size === 0
 			? allRows
-			: allRows.filter((r) => !excludeIsins.has(r.isin));
+			: allRows.filter((r) => !excludeAssetIds.has(r.assetId));
 
+	const snapshots = new Map((await savedSnapshots(db, runDate)).map((s) => [s.instrumentId, s]));
 	return {
 		signal: slug,
 		runDate,
@@ -67,9 +76,10 @@ export async function signalReport(
 		passed: rows.length,
 		top: rows.slice(0, top).map((r) => ({
 			rank: r.rank as number,
-			ticker: r.ticker,
+			ticker: snapshots.get(r.instrumentId)?.ticker ?? null,
+			assetId: r.assetId, currency: snapshots.get(r.instrumentId)?.currency ?? '',
 			isin: r.isin,
-			name: r.name,
+			name: snapshots.get(r.instrumentId)?.name ?? r.name,
 			score: Number(r.score),
 			percentile: Number(r.percentile),
 			rationale: (r.rationale ?? {}) as Record<string, unknown>

@@ -19,13 +19,14 @@
 	 * tracks the nearest data point).
 	 */
 	interface Props {
+		currency: string;
 		series: PricePoint[];
 		runDate: string;
 		hi52: number | null;
 		lo52: number | null;
 	}
 
-	let { series, runDate, hi52, lo52 }: Props = $props();
+	let { currency, series, runDate, hi52, lo52 }: Props = $props();
 
 	const CHART_HEIGHT = 118;
 	const STROKE_WIDTH = 1.75;
@@ -59,10 +60,10 @@
 </script>
 
 <div class="flex min-w-0 flex-1 flex-col px-[18px] py-[12px]">
-	<div class="flex items-center justify-between gap-3">
+	<div class="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
 		<div class="flex items-baseline gap-2">
 			<span class="font-sans text-2xs font-medium text-text-secondary">{range}</span>
-			<DeltaBadge value={rangeChg} />
+			{#if closes.length >= 2}<DeltaBadge value={rangeChg} />{/if}
 		</div>
 		<Tabs
 			tabs={CHART_RANGES.map((r) => ({ value: r, label: r }))}
@@ -71,7 +72,7 @@
 		/>
 	</div>
 	<div class="mt-2 flex h-[150px] items-stretch">
-		{#if series.length === 0}
+		{#if visible.length === 0}
 			<div class="flex flex-1 items-center justify-center font-mono text-xs text-text-muted">
 				No price history
 			</div>
@@ -132,7 +133,7 @@
 							{formatDayMonth(hover.point.date)}
 						</span>
 						<span class="font-mono text-xs font-medium tabular-nums">
-							€{formatPrice(hover.point.close)}
+							{currency} {formatPrice(hover.point.close)}
 						</span>
 					</div>
 				{/if}

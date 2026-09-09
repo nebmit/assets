@@ -9,8 +9,8 @@
 	const stale = $derived(analysis.freshness === 'stale');
 	const label = $derived(analysis.status === 'present' ? 'Publicly disclosed short positions' :
 		analysis.status === 'none_disclosed' ? 'No publicly disclosed short positions' :
-		'Short seller data unavailable');
-	const tone = $derived(stale || analysis.status === 'unknown' ? 'text-text-tertiary' :
+		analysis.status === 'unavailable' ? 'Named short-holder disclosures unavailable' : 'Short seller data unavailable');
+	const tone = $derived(stale || (analysis.status === 'unknown' || analysis.status === 'unavailable') ? 'text-text-tertiary' :
 		analysis.status === 'present' ? 'text-dir-down' : 'text-dir-up');
 </script>
 
@@ -43,10 +43,13 @@
 			</ul>
 		{:else if analysis.status === 'none_disclosed'}
 			<p>No holders at or above the public disclosure threshold in this snapshot.</p>
+		{:else if analysis.status === 'unavailable'}
+			<p>US stocks do not have the German public named-holder disclosure coverage used here. Aggregate US short interest is not yet integrated.</p>
 		{:else}
 			<p>Complete short seller coverage is unavailable for this asset.</p>
 		{/if}
 		{#if stale}<p class="mt-2">This snapshot is more than three days old and does not contribute a confirmation.</p>{/if}
+		{#if analysis.status !== 'unavailable'}
 		<div class="mt-3 flex flex-wrap items-center gap-2 text-text-muted">
 			<TermHelp term={FINANCIAL_TERMS.shortSellers.term} definition={FINANCIAL_TERMS.shortSellers.definition}
 				clarification={FINANCIAL_TERMS.shortSellers.clarification}>
@@ -55,5 +58,6 @@
 			<Link href="https://www.bundesanzeiger.de/pub/de/nlp" external variant="quiet" size="xs">Bundesanzeiger</Link>
 		</div>
 		<p class="mt-2 text-2xs text-text-muted">Disclosed totals are not total market short interest. Smaller positions may exist.</p>
+		{/if}
 	</div>
 </details>

@@ -62,6 +62,36 @@ describe('SEC discovery', () => {
 });
 
 describe('SEC ownership', () => {
+	it.each([
+		['0001654954-26-004735', ['2026-05-12']],
+		['0001654954-26-004635', ['2026-05-07', '2026-05-07']]
+	])('accepts timezone-qualified dates in real PTC filing %s', (accession, dates) => {
+		const source = readFileSync(`tests/fixtures/sec/ptc-${accession}.xml`, 'utf8');
+		const parsed = parseOwnership(source, accession, 'h');
+		expect(parsed.transactions.map((t) => t.transactionDate)).toEqual(dates);
+		expect(JSON.stringify(parsed.transactions[0].raw.row)).toContain(`${dates[0]}-05:00`);
+	});
+	it.each(['Z', '+14:00', '-14:00', '+05:30'])('retains calendar dates with XML timezone %s', (suffix) => {
+		const source = readFileSync('tests/fixtures/sec/ptc-0001654954-26-004735.xml', 'utf8')
+			.replaceAll('2026-05-12-05:00', `2026-05-12${suffix}`)
+			.replace('<documentType>4</documentType>', `<documentType>4/A</documentType><dateOfOriginalSubmission>2026-05-11${suffix}</dateOfOriginalSubmission>`);
+		const parsed = parseOwnership(source, acc, 'h');
+		expect(parsed.transactions[0].transactionDate).toBe('2026-05-12');
+		expect(parsed.originalSubmissionDate).toBe('2026-05-11');
+	});
+	it.each(['2026-02-30-05:00', '2026-05-12+14:01', '2026-05-12-15:00', '2026-05-12+05:60', '2026-05-12junk'])('rejects invalid ownership date %s', (value) => {
+		const source = readFileSync('tests/fixtures/sec/ptc-0001654954-26-004735.xml', 'utf8').replaceAll('2026-05-12-05:00', value);
+		expect(() => parseOwnership(source, acc, 'h')).toThrow();
+	});
+	it('accepts real leading-dot fractional shares without dropping the filing', () => {
+		const parsed = parseOwnership(readFileSync('tests/fixtures/sec/d-form4-fraction.txt', 'utf8'), '0000029534-26-000070', 'h');
+		expect(parsed.transactions[1]).toMatchObject({ volume: '0.3258', price: '109.9' });
+	});
+	it('ignores an unrelated exhibit doctype but rejects declarations in ownership XML', () => {
+		const source = readFileSync('tests/fixtures/sec/xcel-form3-exhibit.txt', 'utf8');
+		expect(parseOwnership(source, '0001389812-26-000004', 'h').form).toBe('3');
+		expect(() => parseOwnership(source.replace('<ownershipDocument', '<!DOCTYPE ownershipDocument><ownershipDocument'), acc, 'h')).toThrow('forbidden');
+	});
 	it('parses original XML embedded in SGML with fractional shares and footnotes', () => {
 		const p = parseOwnership(ownership,acc,'h'); expect(p.issuerCik).toBe('0000789019'); expect(p.owners[0].cik).toBe('0001899931');
 		expect(p.acceptedAt).toBe('2026-08-05T22:08:55.000Z');
@@ -118,7 +148,7 @@ describe('SEC financial normalization', () => {
 		expect(p.facts).toHaveLength(2); expect(p.facts[0].sourceRecordId).not.toBe(p.facts[1].sourceRecordId);
 	});
 	it('quarantines conflicting values, wrong units and unsupported durations', () => {
-		const conflict = normalizeFacts(facts([annual,{...annual,val:99}]),'0000789019','h','2022-01-01'); expect(conflict.facts).toHaveLength(0);
+		const conflict = normalizeFacts(facts([annual,{...annual,val:99}]),'0000789019','h','2022-01-01'); expect(conflict.facts).toHaveLength(2); expect(conflict.facts.every((f) => f.metadata.comparisonStatus === 'conflicting_source_values')).toBe(true);
 		const doc = facts([annual]); doc.facts['us-gaap'].EarningsPerShareBasic.units = { EUR: [annual] } as never;
 		expect(normalizeFacts(doc,'0000789019','h','2022-01-01').facts).toHaveLength(0);
 		expect(normalizeFacts(facts([{...annual,start:'2025-06-01'}]),'0000789019','h','2022-01-01').facts).toHaveLength(0);

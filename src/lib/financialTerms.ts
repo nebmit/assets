@@ -29,7 +29,7 @@ export const FINANCIAL_TERMS = {
 	relativeValue: {
 		term: 'Relative Value',
 		definition: 'Valuation relative to peers',
-		clarification: 'Here, a P/E discount versus the sector or index median, with basic quality gates.'
+		clarification: 'Here, a P/E discount versus the sector or size-band median, with basic quality gates.'
 	},
 	pe: {
 		term: 'P/E',
@@ -53,7 +53,7 @@ export const FINANCIAL_TERMS = {
 	marketCap: {
 		term: 'Mkt cap',
 		definition: 'Market capitalization',
-		clarification: 'Share price multiplied by shares outstanding.'
+		clarification: 'Share price multiplied by qualified shares outstanding. US values describe the selected share class; issuer totals require every relevant class.'
 	},
 	filings: {
 		term: 'Filings',
@@ -62,8 +62,8 @@ export const FINANCIAL_TERMS = {
 	},
 	insiderTrades: {
 		term: 'Insider trades',
-		definition: "Directors' dealings",
-		clarification: 'Disclosed transactions by management, supervisory-board members or related parties.'
+		definition: 'Disclosed insider transactions',
+		clarification: 'Disclosed transactions by executives, directors, beneficial owners or related parties.'
 	},
 	bafin: {
 		term: 'BaFin',

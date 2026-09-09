@@ -22,6 +22,18 @@ describe('index universe', () => {
 		expect(() => parseIndexHoldings(ivv + '"BROKEN","row"\n', indexSources.sp500.name)).toThrow();
 		expect(() => parseIndexHoldings('<html>Access denied</html>', indexSources.sp500.name)).toThrow();
 	});
+	it('normalizes space-separated share classes without joining distinct symbols', () => {
+		const input = ijh.replace('"TWLO"', '"MOG A"').replace('"ILMN"', '"BRK B"');
+		const parsed = parseIndexHoldings(input, indexSources.sp400.name);
+		expect(parsed.holdings.map((h) => h.ticker)).toEqual(['MOG.A', 'BRK.B', 'FTI']);
+		const resolved = resolveIndexCiks([{ index: 'sp400', holdings: parsed.holdings }], [
+			{ ticker: 'MOG-A', cik: '0000067887', name: 'Moog', exchange: 'NYSE' },
+			{ ticker: 'MOGA', cik: '0000000001', name: 'Different symbol', exchange: 'NYSE' }
+		]);
+		expect([...resolved.members.keys()]).toEqual(['0000067887']);
+		expect(() => parseIndexHoldings(input.replace('"BRK B"', '"MOG.A"'), indexSources.sp400.name)).toThrow('Duplicate');
+		expect(() => parseIndexHoldings(ijh.replace('"TWLO"', '"MOG A B"'), indexSources.sp400.name)).toThrow('Invalid equity holding ticker');
+	});
 	it('unions CIKs across share classes and indices, retaining unresolved and ambiguous symbols', () => {
 		const holding = (ticker: string) => ({ ticker, name: ticker });
 		const ticker = (symbol: string, cik: string) => ({ ticker: symbol, cik, name: symbol, exchange: 'NYSE' });

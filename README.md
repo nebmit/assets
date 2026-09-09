@@ -1,7 +1,7 @@
 # assets
 
-Asset surfacing system: surfaces buy-side signals on German equities
-(DAX/MDAX/SDAX) — we surface, we never recommend. See the baseline doc for
+Asset surfacing system: surfaces buy-side signals on German and US equities
+(DAX/MDAX/SDAX and S&P 500/MidCap 400 holdings proxies) — we surface, we never recommend. See the baseline doc for
 positioning and scope.
 
 ## Architecture
@@ -27,6 +27,9 @@ positioning and scope.
 | Index constituents, master data | api.boerse-frankfurt.de | Undocumented JSON API; tracing-header handshake in `sources/boerseFrankfurt/client.ts` |
 | EOD prices (XETR) | api.boerse-frankfurt.de | 3y `price_history` backfill for current instruments; daily closes come from the snapshot |
 | Fundamentals bootstrap + daily closes (EPS, market cap, dividend, prev close) | api.boerse-frankfurt.de | `equity_search` snapshot, one request per index per day; ESEF/Unternehmensregister parser is a later milestone |
+| US issuer filings, financial facts and ownership | SEC EDGAR | Archived originals, qualified periods/classes and revision-aware dealings |
+| US daily prices and corporate actions | Alpaca | Authenticated historical SIP, raw USD bars, explicit split adjustment; no IEX fallback |
+| Dated currency conversion for insider thresholds | ECB | Native monetary display; dated EUR comparison only |
 | Insider transactions (Art. 19 MAR) | BaFin DealingsInfo | Full rolling 12-month CSV export per run, natural-key dedupe |
 | Net short positions ≥0.5% (SSR 236/2012 Art. 6) | Bundesanzeiger Netto-Leerverkaufspositionen | Stateful Wicket session; 3y backfill then a rolling 90-day window, unioned with the open list; natural-key dedupe |
 
@@ -34,8 +37,8 @@ The BF API silently tarpits callers after request bursts (~150+ at sub-second
 spacing), so the client rate-limits hard (2.5s), keeps per-request budgets
 short, and trips a circuit breaker after 3 consecutive transport failures —
 a penalty-boxed job fails in minutes and self-heals on the next daily run.
-Steady state uses under ten requests per day; per-instrument endpoints are
-reserved for backfill.
+Split-consistent chart history currently refreshes per instrument, so a full German
+price cycle takes several minutes at the provider’s required request spacing.
 
 ### Signal engine
 
@@ -45,13 +48,13 @@ runs, so an empty day is a valid, meaningful answer). Raw inputs live in
 `signal.rationale`, including a human-readable `headline`. All data access
 is point-in-time (`published_date <= run_date`, no lookahead).
 
-- `insider_conviction` (v2): role-weighted, publication-decayed insider
-  share *buying* over 30 days. Gate: cap-band floor (€100k DAX / €50k MDAX
-  / €25k SDAX role-weighted; halved for ≥2-buyer clusters). Sells only
+- `insider_conviction` (v4): role-weighted, publication-decayed insider
+  share *buying* over 30 days. Gate: cap-band floor (€100k large / €50k mid
+  / €25k small role-weighted; halved for ≥2-buyer clusters). Sells only
   dampen, never erase, buys; buying into a falling price boosts severity.
-- `relative_value` (v2): P/E vs the super-sector peer median
-  (`signals/sectors.ts` buckets BF's granular sectors; index median as
-  fallback). Gate: a *material* discount (≥15%), fresh close, positive
+- `relative_value` (v4): P/E vs the super-sector peer median
+  (`signals/sectors.ts` maps BF sectors and SEC SIC codes; size-band median as
+  fallback, counting issuers once). Gate: a *material* discount (≥15%), fresh close, positive
   EPS, and no falling knife (>35% six-month drop). Dividend yield adds a
   small support bonus.
 - `no_disclosed_shorts` (v1): fresh confirmed absence of public short positions;
@@ -75,10 +78,10 @@ signal run (strongest first, with per-row `reasons`), and one read-only
 facet tool per component signal (`signal_<slug>`) returns that signal's
 fired rows, all as structured output.
 
-Every row is enriched query-time (bounded by the run date, no lookahead):
+Every row uses the immutable research snapshot saved with its signal run:
 per-insider dealing detail (name, role, role weight, dates, prices,
-`dealingType` at the granularity the BaFin CSV offers — open-market
-purchase / sale / settlement-or-award — plus whether the dealing counted
+`dealingType` preserves purchases, sales and other transactions; SEC purchases
+may include private transactions. Currency inference and qualification explain whether it counted
 toward severity), a point-in-time fundamentals snapshot (price, YTD
 return, 52-week range, market cap, *trailing* P/E, dividend yield —
 forward P/E and analyst consensus have no data source), every signal's
@@ -88,7 +91,7 @@ headlines, and `superSector`/`sectorPeersFiring` (how many peers of the
 same super-sector fired the same signal — a crowded sector is usually a
 macro flag, not a stock-picker's edge).
 
-`issuer_detail(isin, runDate?)` is the drill-down for one instrument:
+`issuer_detail(assetId, runDate?)` is the drill-down for one instrument:
 ~36 months of monthly closes, EPS/market-cap/dividend history, the stored
 directors'-dealings record (max 50, reaching back as far as ingestion
 does), per-insider follow-through (prior counted buys with the ~91-day
@@ -130,7 +133,8 @@ envelope pattern and constraints).
 ```bash
 docker compose up -d postgres   # local DB
 npm install
-npm run worker -- run           # migrate + German and SEC pipelines for today
+npm run worker -- run           # combined daily cycle; drains selected SEC queues to completion
+npm run worker -- backfill --source=sec # explicitly drain the SEC backlog (can take hours)
 npm run worker -- run --job=signals --date=2026-07-01
 npm run worker -- report --top=10
 npm run seed:demo               # DESTRUCTIVE dev seed: demo universe + real signal run
@@ -138,11 +142,13 @@ npm run dev                     # web app (surfaced feed at /)
 npm test                        # unit tests; set TEST_DATABASE_URL for the DB integration test
 ```
 
-Configuration via environment (see `.env.example`): `DATABASE_URL`,
-`RAW_DATA_DIR` (raw source payload archive), `INGEST_CRON`, `TZ`, plus the
+The standalone worker loads `.env` from its working directory; exported environment
+variables take precedence. Configuration (see `.env.example`): `DATABASE_URL`,
+`RAW_DATA_DIR` (raw source payload archive), `INGEST_CRON`, `TZ`, worker-only
+`APCA_API_KEY_ID` / `APCA_API_SECRET_KEY` for Alpaca, plus the
 SSO/OAuth wiring `AUTH_ORIGIN`, `RESOURCE_URL`, `INTROSPECTION_SECRET`.
 
-The daily worker includes SEC ingestion for the S&P 500 and S&P MidCap 400 tracking-fund universe. Both source groups use the same schedule, defaulting to 06:30 Europe/Berlin. German ingestion and signal results finish before SEC backfill work. `--source=sec` is an optional source filter, not required to enable SEC. See [SEC ingestion](docs/sec-ingestion.md) for coverage, index selection and replay commands.
+The daily worker includes SEC ingestion for the S&P 500 and S&P MidCap 400 tracking-fund universe. Both source groups use the same schedule, defaulting to 06:30 Europe/Berlin. All ingestion precedes one combined snapshot and signal run, followed by performance. SEC backlog work is resumable and bounded in ordinary runs and scheduled cycles. `--source=sec` is an optional source filter, not required to enable SEC. See [SEC ingestion](docs/sec-ingestion.md) for coverage, index selection and replay commands.
 
 ## Production
 
@@ -158,7 +164,7 @@ runs the pipeline daily at 06:30 Europe/Berlin by default.
 The Bundesanzeiger job preserves validated, unfiltered open-register snapshots alongside
 its disclosure history. Asset cards and every watchlist entry show public position status,
 named holders, disclosed percentages, position dates, and the snapshot check date. The
-watchlist joins the run's public ISIN map in the browser; private watchlist contents remain
+watchlist joins the public asset catalog in the browser; private watchlist contents remain
 in the existing encrypted store.
 
 `no_disclosed_shorts` (No Disclosed Shorts) is a **confirmation** signal. Fresh confirmed
@@ -194,3 +200,36 @@ the snapshot table and capture-time index. Check the ingestion statistics and lo
 `open_export_failed` before expecting new coverage. `npm run seed:demo` includes clearly
 synthetic short holders and remains destructive: use it only in a disposable database.
 The CSV parser fixture combines representative source-format rows with synthetic edge cases.
+
+Shared identity, migrations, qualification rules and rollout verification: [SEC feature parity](docs/sec-feature-parity.md).
+
+### US data repair and coverage
+
+SEC runs drain the selected universe without a cycle time budget. Individual
+requests retain timeouts, retries and rate limiting; failures keep durable work
+and make the command exit unsuccessfully. A combined run continues other source
+ingesters but skips signals and performance when SEC is incomplete, retaining
+the previous dashboard snapshot. The scheduler prevents overlap.
+
+`npm run worker -- backfill --source=sec` repairs migrated financial news,
+renormalizes outdated financial facts, and processes pending insider filings.
+Repairs reuse archived filing evidence and are safe to repeat. News retains its
+publication time and receives the actual repair observation time. An archive 404
+is classified as unavailable only when the rebuilt SEC index and an issuer
+submissions window covering that filing date also omit it; the verification
+evidence is archived. A later rediscovery makes the filing eligible again.
+
+After SEC repair, run `npm run worker -- run --source=alpaca`, then
+`npm run worker -- run --job=signals` to refresh the current dashboard snapshot.
+Historical snapshots are not rebuilt. `npm run worker -- report --source=sec`
+includes normalization versions, filing queue counts and financial coverage
+by reason for the latest saved snapshot.
+
+US basic EPS can use parent earnings only when reported basic EPS and weighted
+shares reconcile. Exact and rounded outstanding share counts can reconcile
+within reported precision while retaining all contributing evidence. Common book equity requires explicit attribution, a preferred
+capital deduction, or a reconciled common-equity breakdown. Unresolved classes,
+conflicting facts and stale periods remain unavailable with a specific reason.
+Losses are shown as EPS; their P/E is not meaningful. US aggregate short interest
+is not integrated; the German named-holder disclosure panel is not evidence of
+US short positions.

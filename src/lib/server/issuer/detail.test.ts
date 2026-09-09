@@ -7,13 +7,13 @@ const RUN_DATE = '2026-07-01';
 function makeDealing(overrides: Partial<InsiderDealingView>): InsiderDealingView {
 	return {
 		party: 'Armin Example',
-		role: 'executive_board',
+		role: 'executive',
 		roleWeight: 1,
 		side: 'buy',
-		dealingType: 'open_market_purchase',
-		instrumentType: 'Aktie',
-		countedInSignal: true,
-		amountEur: 100_000,
+		dealingType: 'purchase',
+		instrumentType: 'common_share',
+		countedInSignal: true, currencyStatus: 'explicit', qualificationReason: null, source: 'bafin', url: null, owners: [],
+		currency: 'EUR', amount: 100_000,
 		price: 80,
 		transactionDate: '2026-01-05',
 		publishedDate: '2026-01-06',
@@ -76,7 +76,7 @@ describe('computeFollowThrough', () => {
 			[
 				makeDealing({}),
 				makeDealing({ transactionDate: '2026-02-10' }),
-				makeDealing({ party: 'Second Buyer', role: 'supervisory_board' }),
+				makeDealing({ party: 'Second Buyer', role: 'director' }),
 				makeDealing({ party: null }),
 				makeDealing({ side: 'sell', dealingType: 'sale' }),
 				makeDealing({ side: 'other', dealingType: 'settlement_or_award', countedInSignal: false })

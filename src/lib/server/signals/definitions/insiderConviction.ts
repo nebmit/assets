@@ -1,4 +1,4 @@
-import { formatCompactEur } from '../../../format.js';
+import { formatCompactNumber } from '../../../format.js';
 import { daysBetween } from '../../util.js';
 import { INSIDER_WINDOW_DAYS } from '../context.js';
 import type { SignalDefinition } from '../types.js';
@@ -11,14 +11,14 @@ export const HALF_LIFE_DAYS = 21;
 
 /** Board members carry more information than related parties. */
 export const ROLE_WEIGHTS = {
-	executive_board: 1.0,
-	supervisory_board: 0.85,
+	executive: 1.0,
+	director: 0.85,
 	other: 0.7, // "Sonstige Führungsperson"
 	related_party: 0.6
 } as const;
 
 /** Only share dealings count; derivatives/debt are noise for this signal. */
-export const COUNTED_INSTRUMENT_TYPE = 'Aktie';
+export const COUNTED_INSTRUMENT_TYPE = 'common_share';
 
 /** Publication-age decay factor in (0, 1] applied to a dealing's EUR amount. */
 export function publicationDecay(publishedDate: string, runDate: string): number {
@@ -34,7 +34,7 @@ export const DECLINE_THRESHOLD = 0.1;
  * band — a purchase must be larger at a DAX name than at an SDAX name to
  * mean anything. This is what lets an empty day be empty.
  */
-const BUY_FLOOR_EUR = { DAX: 100_000, MDAX: 50_000, SDAX: 25_000 } as const;
+const BUY_FLOOR_EUR = { large: 100_000, mid: 50_000, small: 25_000 } as const;
 
 /** A ≥2-buyer cluster qualifies at half the floor: agreement beats size. */
 const CLUSTER_FLOOR_FRACTION = 0.5;
@@ -67,7 +67,7 @@ export const insiderConvictionSignal: SignalDefinition = {
 	role: 'discovery',
 	slug: 'insider_conviction',
 	name: 'Insider Conviction',
-	version: 3,
+	version: 4,
 	params: {
 		window_days: INSIDER_WINDOW_DAYS,
 		half_life_days: HALF_LIFE_DAYS,
@@ -88,18 +88,18 @@ export const insiderConvictionSignal: SignalDefinition = {
 			(tx) =>
 				tx.instrumentType === COUNTED_INSTRUMENT_TYPE &&
 				(tx.side === 'buy' || tx.side === 'sell') &&
-				tx.amount !== null &&
-				tx.amount > 0
+				tx.amountEur !== null &&
+				tx.amountEur > 0
 		);
 
 		let buyValue = 0;
 		let sellValue = 0;
 		let weightedBuys = 0;
-		const namedBuyers = new Set<string>();
+		const buyerGroups: Set<string>[] = [];
 		let hasUnnamedBuyer = false;
 		let newestPublished: string | null = null;
 		for (const tx of counted) {
-			const amount = tx.amount as number;
+			const amount = tx.amountEur as number;
 			if (tx.side === 'sell') {
 				sellValue += amount;
 				continue;
@@ -107,14 +107,19 @@ export const insiderConvictionSignal: SignalDefinition = {
 			buyValue += amount;
 			weightedBuys += amount * ROLE_WEIGHTS[tx.partyRole] * publicationDecay(tx.publishedDate, ctx.runDate);
 			if (tx.partyName === null) hasUnnamedBuyer = true;
-			else namedBuyers.add(tx.partyName);
+			else {
+				const ids = new Set(tx.buyerKey.split(',').filter(Boolean));
+				const overlap = buyerGroups.filter((group) => [...ids].some((id) => group.has(id)));
+				for (const group of overlap) { for (const id of group) ids.add(id); buyerGroups.splice(buyerGroups.indexOf(group), 1); }
+				if (ids.size) buyerGroups.push(ids);
+			}
 			if (newestPublished === null || tx.publishedDate > newestPublished) {
 				newestPublished = tx.publishedDate;
 			}
 		}
 		// unnamed filings can't prove distinct people, so they count as one buyer at most
-		const buyerCount = namedBuyers.size + (hasUnnamedBuyer ? 1 : 0);
-		const floor = BUY_FLOOR_EUR[instrument.indexName];
+		const buyerCount = buyerGroups.length || (hasUnnamedBuyer ? 1 : 0);
+		const floor = BUY_FLOOR_EUR[instrument.sizeBand];
 
 		const rationale: Record<string, unknown> = {
 			buy_value_eur: buyValue,
@@ -129,7 +134,8 @@ export const insiderConvictionSignal: SignalDefinition = {
 				party: tx.partyName,
 				role: tx.partyRole,
 				side: tx.side,
-				amount_eur: tx.amount,
+				amount_eur: tx.amountEur,
+				amount: tx.amount, currency: tx.currency, currency_status: tx.currencyStatus ?? null, qualification_reason: tx.qualificationReason ?? null,
 				transaction_date: tx.transactionDate,
 				published_date: tx.publishedDate
 			}))
@@ -156,13 +162,16 @@ export const insiderConvictionSignal: SignalDefinition = {
 		rationale.cluster_factor = clusterFactor;
 		rationale.sell_dampen = sellDampen;
 		rationale.contrarian_boost = contrarianBoost;
-		rationale.headline = insiderHeadline(buyerCount, buyValue, drop);
+		const nativeCurrency = counted.find((t) => t.side === 'buy')?.currency;
+		const nativeBuys = counted.filter((t) => t.side === 'buy');
+		const sameCurrency = nativeCurrency && nativeBuys.every((t) => t.currency === nativeCurrency);
+		rationale.headline = insiderHeadline(buyerCount, sameCurrency ? nativeBuys.reduce((n, t) => n + (t.amount ?? 0), 0) : buyValue, drop, sameCurrency ? nativeCurrency : 'EUR');
 		return { passedGate: true, score: severity, eventDate: newestPublished, rationale };
 	}
 };
 
-function insiderHeadline(buyerCount: number, buyValue: number, drop: number): string {
+function insiderHeadline(buyerCount: number, buyValue: number, drop: number, currency: string): string {
 	const who = buyerCount === 1 ? '1 insider' : `${buyerCount} insiders`;
 	const intoWeakness = drop >= DECLINE_THRESHOLD ? ' into a falling price' : '';
-	return `${who} bought €${formatCompactEur(buyValue)} in 30d${intoWeakness}`;
+	return `${who} bought ${currency} ${formatCompactNumber(buyValue)} in 30d${intoWeakness}`;
 }

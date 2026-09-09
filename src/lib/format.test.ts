@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
 	ageOpacity,
 	formatAsOf,
-	formatCompactEur,
+	formatCompactNumber,
 	formatDayMonth,
 	formatDayMonthYear,
 	formatPrice,
@@ -10,25 +10,25 @@ import {
 	formatSignedPercent
 } from './format.js';
 
-describe('formatCompactEur', () => {
+describe('formatCompactNumber', () => {
 	it('formats millions with two decimals', () => {
-		expect(formatCompactEur(1_240_000)).toBe('1.24M');
-		expect(formatCompactEur(2_800_000)).toBe('2.80M');
+		expect(formatCompactNumber(1_240_000)).toBe('1.24M');
+		expect(formatCompactNumber(2_800_000)).toBe('2.80M');
 	});
 
 	it('formats thousands as whole k', () => {
-		expect(formatCompactEur(820_000)).toBe('820k');
-		expect(formatCompactEur(640_499)).toBe('640k');
+		expect(formatCompactNumber(820_000)).toBe('820k');
+		expect(formatCompactNumber(640_499)).toBe('640k');
 	});
 
 	it('formats billions and small values', () => {
-		expect(formatCompactEur(8_500_000_000)).toBe('8.50B');
-		expect(formatCompactEur(999)).toBe('999');
-		expect(formatCompactEur(0)).toBe('0');
+		expect(formatCompactNumber(8_500_000_000)).toBe('8.50B');
+		expect(formatCompactNumber(999)).toBe('999');
+		expect(formatCompactNumber(0)).toBe('0');
 	});
 
 	it('uses a true minus for negatives', () => {
-		expect(formatCompactEur(-1_600_000)).toBe('−1.60M');
+		expect(formatCompactNumber(-1_600_000)).toBe('−1.60M');
 	});
 });
 
@@ -54,7 +54,7 @@ describe('date labels', () => {
 	});
 
 	it('builds the as-of line', () => {
-		expect(formatAsOf('2026-07-01')).toBe('As of 01 Jul 2026 · EOD close · Börse Frankfurt');
+		expect(formatAsOf('2026-07-01')).toBe('As of 01 Jul 2026 · Daily closes');
 	});
 });
 

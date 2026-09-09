@@ -1,3 +1,5 @@
+import { alpacaPricesJob, alpacaActionsJob } from '../sources/alpaca/jobs.js';
+import { ecbRatesJob } from '../sources/ecb/rates.js';
 import { secJobs, secReconcileJob } from '../sources/sec/jobs.js';
 import { signalsJob } from '../signals/engine.js';
 import { performanceJob } from '../signals/performance.js';
@@ -11,8 +13,8 @@ import type { Job } from './types.js';
 
 /**
  * The daily pre-market pipeline, in dependency order.
- * Snapshot runs before prices so fresh closes make price_history requests
- * unnecessary in steady state.
+ * Snapshot runs before prices so raw gap repair can use fresh closes;
+ * split-adjusted histories are refreshed separately.
  */
 export const allJobs: Job[] = [
 	constituentsJob,
@@ -23,11 +25,12 @@ export const allJobs: Job[] = [
 	shortPositionsJob,
 	// news last among ingesters: its ~7-min rate-limited walk feeds no signal
 	newsJob,
+	...secJobs,
+	alpacaActionsJob,
+	alpacaPricesJob,
+	ecbRatesJob,
 	signalsJob,
-	// measure forward returns of past surfaced signals once horizons elapse
-	performanceJob,
-	// SEC research ingestion currently feeds no product signals. Complete German results first.
-	...secJobs
+	performanceJob
 ];
 
 export function findJob(name: string): Job | undefined {

@@ -1,3 +1,4 @@
+import { archiveObservation } from '../../assets/evidence.js';
 import type { z } from 'zod';
 import { fetchText, RateLimiter } from '../../http.js';
 import { archiveRaw } from '../../rawArchive.js';
@@ -113,6 +114,7 @@ export async function bfRequest<T>(path: string, options: BfRequestOptions<T>): 
 		consecutiveFailures++;
 		throw err;
 	}
+	await archiveObservation(BF_SOURCE, url, text);
 	if (options.archiveName) await archiveRaw(BF_SOURCE, options.archiveName, text);
 
 	const parsed = options.schema.safeParse(JSON.parse(text));

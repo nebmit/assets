@@ -1,5 +1,7 @@
+import { archiveObservation } from '../../assets/evidence.js';
 import { and, eq, inArray, isNull, or } from 'drizzle-orm';
-import { indexMembership, instrument, issuer } from '../../db/schema.js';
+import { indexMembership, instrument, issuer, listing, universe } from '../../db/schema.js';
+import { primaryListing } from '../../assets/listings.js';
 import type { Job, JobContext, JobStats } from '../../pipeline/types.js';
 import { bfRequest, BF_SOURCE, BfUnavailableError } from './client.js';
 import {
@@ -78,7 +80,7 @@ async function upsertInstruments(ctx: JobContext, members: Constituent[]): Promi
 				.from(instrument)
 				.where(inArray(instrument.isin, members.map((m) => m.isin)))
 		: [];
-	for (const row of existing) byIsin.set(row.isin, row.id);
+	for (const row of existing) if (row.isin) byIsin.set(row.isin, row.id);
 
 	for (const member of members) {
 		const existingId = byIsin.get(member.isin);
@@ -96,11 +98,12 @@ async function upsertInstruments(ctx: JobContext, members: Constituent[]): Promi
 				issuerId: newIssuer.id,
 				isin: member.isin,
 				wkn: member.wkn,
-				currency: 'EUR',
+				shortDisclosureSource: 'bundesanzeiger',
 				firstSeen: ctx.runDate,
 				lastSeen: ctx.runDate
 			})
 			.returning({ id: instrument.id });
+		await ctx.db.insert(listing).values({ instrumentId: newInstrument.id, mic: 'XETR', currency: 'EUR', source: BF_SOURCE, validFrom: ctx.runDate });
 		byIsin.set(member.isin, newInstrument.id);
 	}
 	return byIsin;
@@ -118,28 +121,33 @@ export const constituentsJob: Job = {
 		const stats: JobStats = {};
 		let added = 0;
 		let removed = 0;
-		for (const index of INDICES) {
+		for (const [position, index] of INDICES.entries()) {
+			await ctx.db.insert(universe).values({ id: index.name, name: index.name, sizeBand: (['large', 'mid', 'small'] as const)[position], source: BF_SOURCE, basis: 'provider_constituents' }).onConflictDoNothing();
 			const members = await fetchConstituents(index.isin, index.name);
-			if (members.length === 0) throw new Error(`no constituents returned for ${index.name}`);
+			if (members.length < [30, 40, 60][position] || new Set(members.map((m) => m.isin)).size !== members.length) throw new Error(`Incomplete or duplicate constituent snapshot for ${index.name}`);
+			const evidence = await archiveObservation(BF_SOURCE, `https://api.boerse-frankfurt.de/v1/search/equity_search?index=${index.isin}`, JSON.stringify(members));
+			const effectiveDate = [ctx.runDate, evidence.observedAt.slice(0, 10)].sort().at(-1)!;
 			stats[`${index.name}_members`] = members.length;
 
-			const idByIsin = await upsertInstruments(ctx, members);
-			const active = await activeMemberIds(ctx, index.name);
+			await ctx.db.transaction(async (db) => {
+			const transactionCtx = { ...ctx, runDate: effectiveDate, db: db as unknown as JobContext['db'] };
+			const idByIsin = await upsertInstruments(transactionCtx, members);
+			const active = await activeMemberIds(transactionCtx, index.name);
 			const current = new Set(idByIsin.values());
 
 			for (const instrumentId of current) {
 				if (!active.has(instrumentId)) {
-					await ctx.db
+					await db
 						.insert(indexMembership)
-						.values({ instrumentId, indexName: index.name, validFrom: ctx.runDate });
+						.values({ instrumentId, indexName: index.name, validFrom: effectiveDate, snapshotDate: effectiveDate, observedAt: new Date(evidence.observedAt), evidence });
 					added++;
 				}
 			}
 			for (const instrumentId of active) {
 				if (!current.has(instrumentId)) {
-					await ctx.db
+					await db
 						.update(indexMembership)
-						.set({ validTo: ctx.runDate })
+						.set({ validTo: effectiveDate })
 						.where(
 							and(
 								eq(indexMembership.instrumentId, instrumentId),
@@ -150,6 +158,7 @@ export const constituentsJob: Job = {
 					removed++;
 				}
 			}
+			});
 			ctx.log(`${index.name}: ${members.length} members`);
 		}
 		stats.memberships_opened = added;
@@ -171,12 +180,13 @@ export const masterDataJob: Job = {
 				instrumentId: instrument.id,
 				isin: instrument.isin,
 				issuerId: instrument.issuerId,
-				ticker: instrument.ticker,
+				ticker: listing.symbol,
 				sector: issuer.sector
 			})
 			.from(instrument)
 			.innerJoin(issuer, eq(issuer.id, instrument.issuerId))
-			.where(or(isNull(instrument.ticker), isNull(issuer.sector)));
+			.innerJoin(listing, eq(listing.instrumentId, instrument.id))
+			.where(and(eq(listing.source, BF_SOURCE), isNull(listing.validTo), or(isNull(listing.symbol), isNull(issuer.sector))));
 
 		let updated = 0;
 		let failed = 0;
@@ -184,17 +194,16 @@ export const masterDataJob: Job = {
 			try {
 				if (gap.ticker === null) {
 					const info = await bfRequest('/data/instrument_information', {
-						params: { isin: gap.isin },
+						params: { isin: gap.isin! },
 						schema: instrumentInformation
 					});
-					await ctx.db
-						.update(instrument)
-						.set({ ticker: info.exchangeSymbol ?? null, wkn: info.wkn ?? undefined })
-						.where(eq(instrument.id, gap.instrumentId));
+					const quote = await primaryListing(ctx.db, gap.instrumentId);
+					if (quote) await ctx.db.update(listing).set({ symbol: info.exchangeSymbol ?? null }).where(eq(listing.id, quote.id));
+					await ctx.db.update(instrument).set({ wkn: info.wkn ?? undefined }).where(eq(instrument.id, gap.instrumentId));
 				}
 				if (gap.sector === null) {
 					const master = await bfRequest('/data/equity_master_data', {
-						params: { isin: gap.isin },
+						params: { isin: gap.isin! },
 						schema: equityMasterData
 					});
 					if (master.sector?.originalValue) {

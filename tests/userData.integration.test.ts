@@ -5,7 +5,7 @@ import { userBlob, userIgnoredAsset, userKeyWrap } from '../src/lib/server/db/sc
 import {
 	addIgnoredAsset,
 	listIgnoredAssets,
-	listIgnoredIsins,
+	listIgnoredAssetIds,
 	removeIgnoredAsset
 } from '../src/lib/server/userData/ignoredAssets.js';
 import {
@@ -180,12 +180,12 @@ describe.skipIf(!url)('userData repo (integration)', () => {
 			await addIgnoredAsset(handle.db, USER, ALLIANZ, 'Allianz SE');
 
 			const entries = await listIgnoredAssets(handle.db, USER);
-			expect(entries.map((e) => e.isin)).toEqual([SAP, ALLIANZ]);
+			expect(entries.map((e) => e.assetId)).toEqual([SAP, ALLIANZ]);
 			expect(await listIgnoredAssets(handle.db, OTHER_USER)).toEqual([]);
-			expect(await listIgnoredIsins(handle.db, USER)).toEqual(new Set([SAP, ALLIANZ]));
+			expect(await listIgnoredAssetIds(handle.db, USER)).toEqual(new Set([SAP, ALLIANZ]));
 
 			expect(await removeIgnoredAsset(handle.db, USER, SAP)).toBe(true);
-			expect((await listIgnoredAssets(handle.db, USER)).map((e) => e.isin)).toEqual([ALLIANZ]);
+			expect((await listIgnoredAssets(handle.db, USER)).map((e) => e.assetId)).toEqual([ALLIANZ]);
 		});
 
 		it('re-adding refreshes the name but keeps the original addedAt', async () => {

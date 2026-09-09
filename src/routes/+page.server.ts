@@ -1,3 +1,4 @@
+import { assetCatalog } from '$lib/server/assets/catalog.js';
 import { getDb } from '$lib/server/db/index.js';
 import { getFeedPayload } from '$lib/server/feed/cache.js';
 import type { PageServerLoad } from './$types.js';
@@ -12,9 +13,9 @@ import type { PageServerLoad } from './$types.js';
 export const load: PageServerLoad = async () => {
 	try {
 		const payload = await getFeedPayload(getDb());
-		return { payload, dbError: false };
+		return { payload, catalog: await assetCatalog(getDb()), dbError: false };
 	} catch (err) {
 		console.error('feed load failed', err);
-		return { payload: null, dbError: true };
+		return { payload: null, catalog: [], dbError: true };
 	}
 };

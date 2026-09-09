@@ -13,8 +13,15 @@ function text(v: unknown): string | null {
 function flag(v: unknown): boolean { return ['1', 'true'].includes(String(v).toLowerCase()); }
 function decimal(v: unknown): string | null {
 	const s = text(v); if (s === null) return null;
-	if (!/^-?\d+(?:\.\d+)?$/.test(s)) throw new Error('invalid ownership decimal');
+	if (!/^[+-]?(?:\d+(?:\.\d*)?|\.\d+)$/.test(s)) throw new Error('invalid ownership decimal');
 	return new Decimal(s).toString();
+}
+/** XML Schema dates may carry a timezone; dealings retain the stated calendar day. */
+function ownershipDate(value: unknown): string {
+	const raw = text(value);
+	const match = raw?.match(/^(\d{4}-\d{2}-\d{2})(?:Z|[+-](?:(?:0\d|1[0-3]):[0-5]\d|14:00))?$/);
+	if (!match) throw new Error(`invalid ownership date: ${raw}`);
+	return date.parse(match[1]);
 }
 export interface Owner { cik: string; name: string; director: boolean; officer: boolean; tenPercentOwner: boolean; other: boolean; title: string | null }
 export interface OwnershipTransaction {
@@ -29,9 +36,14 @@ export interface OwnershipResult {
 	transactions: OwnershipTransaction[]; metadata: Record<string, unknown>;
 }
 export function parseOwnership(source: string, acc: string, revision: string): OwnershipResult {
-	if (/<!DOCTYPE|<!ENTITY/i.test(source)) throw new Error('XML declarations with entities are forbidden');
 	const match = /<ownershipDocument\b[\s\S]*?<\/ownershipDocument\s*>/i.exec(source);
 	if (!match) throw new Error('missing ownership XML');
+	// SGML submissions can contain unrelated HTML exhibits with legitimate doctypes.
+	// Validate declarations only in the ownership document and submission preamble.
+	const documents = [...source.matchAll(/<DOCUMENT>[\s\S]*?<\/DOCUMENT\s*>/gi)];
+	const document = documents.find((entry) => entry.index! <= match.index && entry.index! + entry[0].length > match.index);
+	const declarationScope = document ? source.slice(0, documents[0].index) + document[0] : source;
+	if (/<!DOCTYPE|<!ENTITY/i.test(declarationScope)) throw new Error('XML declarations with entities are forbidden');
 	const xml = match[0];
 	if (XMLValidator.validate(xml) !== true) throw new Error('malformed ownership XML');
 	const root = object(new XMLParser({ ignoreAttributes: false, parseTagValue: false, trimValues: true }).parse(xml).ownershipDocument);
@@ -61,7 +73,7 @@ export function parseOwnership(source: string, acc: string, revision: string): O
 				sourceRecordId: hash(JSON.stringify([acc, revision, tableName, ordinal])),
 				partyName: owners.length === 1 ? owners[0].name : null,
 				partyRole: owners.length === 1 && owners[0].officer ? 'executive_board' : 'other',
-				side, instrumentType: derivative ? 'derivative' : 'non_derivative', transactionDate: date.parse(text(row.transactionDate)),
+				side, instrumentType: derivative ? 'derivative' : 'non_derivative', transactionDate: ownershipDate(row.transactionDate),
 				price, volume, amount: null, currency,
 				raw: { row, owners, footnotes, transactionCode: code, acquiredDisposedCode: disposition, securityTitle: text(row.securityTitle), derivative,
 					currencyStatus: 'requires_filing_currency_review', unqualifiedPriceTimesShares: price !== null && volume !== null ? new Decimal(price).mul(volume).toString() : null,
@@ -72,7 +84,7 @@ export function parseOwnership(source: string, acc: string, revision: string): O
 	const accepted = /<ACCEPTANCE-DATETIME>(\d{14})/.exec(source)?.[1];
 	const original = text(root.dateOfOriginalSubmission);
 	return { issuerCik: cik(text(issuer.issuerCik)), issuerName, form, owners,
-		originalSubmissionDate: original ? date.parse(original) : null, acceptedAt: accepted ? acceptanceTime(accepted) : null, transactions,
+		originalSubmissionDate: original ? ownershipDate(original) : null, acceptedAt: accepted ? acceptanceTime(accepted) : null, transactions,
 		metadata: { owners, footnotes, holdings: { nonDerivative: object(root.nonDerivativeTable).nonDerivativeHolding ?? [], derivative: object(root.derivativeTable).derivativeHolding ?? [] },
 			originalSubmissionDate: original, schemaVersion: root.schemaVersion, aff10b5One: flag(root.aff10b5One) }
 	};

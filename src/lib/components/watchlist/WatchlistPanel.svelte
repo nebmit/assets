@@ -15,20 +15,19 @@
 	 * only add friction.
 	 */
 	interface Props {
+		catalog: import('$lib/feed/types.js').AssetCatalogEntry[];
 		entries: ListEntry[];
-		shortSellersByIsin: Record<string, ShortSellerAnalysis>;
+		shortSellersByAssetId: Record<string, ShortSellerAnalysis>;
 		/** ISINs present in the current feed payload (drives the "surfaced" chip). */
-		surfacedIsins: Set<string>;
-		onremove: (isin: string) => void;
+		surfacedAssetIds: Set<string>;
+		onremove: (assetId: string) => void;
 	}
 
-	let { entries, surfacedIsins, onremove, shortSellersByIsin }: Props = $props();
+	let { catalog, entries, surfacedAssetIds, onremove, shortSellersByAssetId }: Props = $props();
 
 	const sorted = $derived([...entries].sort((a, b) => (a.addedAt < b.addedAt ? 1 : -1)));
 
-	function equityUrl(isin: string): string {
-		return `https://www.boerse-frankfurt.de/equity/${isin.toLowerCase()}`;
-	}
+
 </script>
 
 <section
@@ -45,7 +44,8 @@
 		</span>
 	</header>
 	<ul class="m-0 list-none p-0">
-		{#each sorted as entry (entry.isin)}
+		{#each sorted as entry (entry.assetId)}
+			{@const asset = catalog.find((a) => a.assetId === entry.assetId)}
 			<li
 				class="flex flex-wrap items-center gap-3 border-b border-border-subtle py-[9px] pr-[14px] pl-5 transition-colors duration-[120ms] last:border-b-0 hover:bg-surface-hover"
 				style:transition-timing-function="var(--ease-standard)"
@@ -53,12 +53,10 @@
 				<div class="flex min-w-0 flex-1 flex-col gap-[2px] sm:flex-row sm:items-baseline sm:gap-[10px]">
 					<span class="truncate text-sm font-medium tracking-tight">{entry.name}</span>
 					<span class="font-mono tabular-nums">
-						<Link href={equityUrl(entry.isin)} external variant="quiet" size="xs">
-							{entry.isin}
-						</Link>
+						{#if asset?.links.quote}<Link href={asset.links.quote} external variant="quiet" size="xs">{asset.ticker ?? asset.isin ?? ''}</Link>{/if}
 					</span>
 				</div>
-				{#if surfacedIsins.has(entry.isin)}
+				{#if surfacedAssetIds.has(entry.assetId)}
 					<Badge tone="up" variant="soft">surfaced</Badge>
 				{/if}
 				<span
@@ -72,7 +70,7 @@
 					size="icon"
 					title="Remove {entry.name} from your watchlist"
 					aria-label="Remove {entry.name} from your watchlist"
-					onclick={() => onremove(entry.isin)}
+					onclick={() => onremove(entry.assetId)}
 				>
 					<svg
 						width="13"
@@ -88,7 +86,7 @@
 					</svg>
 				</Button>
 			<div class="w-full [&>details]:border-t-0 [&>details]:px-0 [&>details]:py-1">
-					<ShortSellerPanel analysis={shortSellersByIsin[entry.isin]} />
+					<ShortSellerPanel analysis={shortSellersByAssetId[entry.assetId]} />
 				</div>
 			</li>
 		{/each}

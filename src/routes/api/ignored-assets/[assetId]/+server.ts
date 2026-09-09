@@ -10,6 +10,6 @@ export const DELETE: RequestHandler = async ({ locals, params }) => {
 	if (locals.user === null) {
 		return json({ error: 'unauthorized' }, { status: 401, headers: NO_STORE });
 	}
-	await removeIgnoredAsset(getDb(), locals.user.uuid, params.isin);
+	await removeIgnoredAsset(getDb(), locals.user.uuid, params.assetId);
 	return new Response(null, { status: 204, headers: NO_STORE });
 };

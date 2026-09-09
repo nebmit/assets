@@ -54,18 +54,23 @@
 	 */
 	const visibleCards = $derived(
 		ignored.status === "ready"
-			? cards.filter((c) => !ignored.isins.has(c.isin))
+			? cards.filter((c) => !ignored.assetIds.has(c.assetId))
 			: cards,
 	);
 	const visibleAllCards = $derived(
 		ignored.status === "ready"
-			? allCards.filter((c) => !ignored.isins.has(c.isin))
+			? allCards.filter((c) => !ignored.assetIds.has(c.assetId))
 			: allCards,
 	);
 	const filtered = $derived(
 		visibleCards.filter((c) => matchesSearch(c, search)),
 	);
 	const searchTerm = $derived(search.trim());
+	const catalogById = $derived(new Map(data.catalog.map((a) => [a.assetId, a])));
+	function entryMatches(entry: { assetId: string; name: string }, query: string) {
+		const asset = catalogById.get(entry.assetId);
+		return [entry.name, asset?.ticker, asset?.isin, asset?.wkn].some((v) => v?.toLowerCase().includes(query.toLowerCase()));
+	}
 	/** Freshest price date across today's feed; the run date is the fallback. */
 	const asOfDate = $derived(
 		allCards.reduce<string | null>(
@@ -87,7 +92,7 @@
 
 	/** Watchlisted assets the current signal run surfaced, as full cards. */
 	const watchedSurfaced = $derived(
-		visibleAllCards.filter((c) => watchlist.isins.has(c.isin)),
+		visibleAllCards.filter((c) => watchlist.assetIds.has(c.assetId)),
 	);
 	const watchedFiltered = $derived(
 		watchedSurfaced.filter((c) => matchesSearch(c, search)),
@@ -99,19 +104,18 @@
 			: watchlist.entries.filter((e) => {
 					const q = searchTerm.toLowerCase();
 					return (
-						e.name.toLowerCase().includes(q) ||
-						e.isin.toLowerCase().includes(q)
+						entryMatches(e, q)
 					);
 				}),
 	);
-	const surfacedIsins = $derived(new Set(allCards.map((c) => c.isin)));
+	const surfacedAssetIds = $derived(new Set(allCards.map((c) => c.assetId)));
 
 	/** Ignored entries with display names freshened from today's feed. */
 	const ignoredEntries = $derived.by(() => {
-		const names = new Map(allCards.map((c) => [c.isin, c.name]));
+		const names = new Map(allCards.map((c) => [c.assetId, c.name]));
 		return ignored.entries.map((e) => ({
 			...e,
-			name: names.get(e.isin) ?? e.name,
+			name: names.get(e.assetId) ?? e.name,
 		}));
 	});
 	/** The management list honors the search box too (name or ISIN). */
@@ -121,8 +125,7 @@
 			: ignoredEntries.filter((e) => {
 					const q = searchTerm.toLowerCase();
 					return (
-						e.name.toLowerCase().includes(q) ||
-						e.isin.toLowerCase().includes(q)
+						entryMatches(e, q)
 					);
 				}),
 	);
@@ -130,11 +133,11 @@
 	const ignoreCandidates = $derived(
 		searchTerm === ""
 			? []
-			: visibleAllCards.filter((c) => matchesSearch(c, search)),
+			: data.catalog.filter((c) => !ignored.assetIds.has(c.assetId) && entryMatches(c, search)),
 	);
 	/** Surfaced assets the ignore list is actively hiding today. */
 	const ignoredSurfacedCount = $derived(
-		allCards.reduce((n, c) => (ignored.isins.has(c.isin) ? n + 1 : n), 0),
+		allCards.reduce((n, c) => (ignored.assetIds.has(c.assetId) ? n + 1 : n), 0),
 	);
 
 	// Keep the encrypted name snapshots aligned with what the feed shows.
@@ -182,10 +185,10 @@
 </script>
 
 <svelte:head>
-	<title>DAX / MDAX / SDAX · assets</title>
+	<title>Assets · assets</title>
 	<meta
 		name="description"
-		content="Surfaced assets across DAX, MDAX and SDAX — signal evidence, prices, valuation vs sector, insider dealings and regulatory news."
+		content="Surfaced equities — signal evidence, prices, valuation vs sector, insider dealings and regulatory news."
 	/>
 </svelte:head>
 
@@ -401,11 +404,11 @@
 
 			<section class="mt-5" aria-label="Manage watchlist">
 				{#if panelEntries.length > 0}
-					<WatchlistPanel
+					<WatchlistPanel catalog={data.catalog}
 						entries={panelEntries}
-						shortSellersByIsin={payload?.shortSellersByIsin ?? {}}
-						{surfacedIsins}
-						onremove={(isin) => watchlist.remove(isin)}
+						shortSellersByAssetId={payload?.shortSellersByAssetId ?? {}}
+						{surfacedAssetIds}
+						onremove={(assetId) => watchlist.remove(assetId)}
 					/>
 				{:else}
 					<div
@@ -509,10 +512,10 @@
 			{:else}
 				<section aria-label="Manage ignored assets">
 					{#if ignoredPanelEntries.length > 0}
-						<IgnoredPanel
+						<IgnoredPanel catalog={data.catalog}
 							entries={ignoredPanelEntries}
-							{surfacedIsins}
-							onremove={(isin) => ignored.remove(isin)}
+							{surfacedAssetIds}
+							onremove={(assetId) => ignored.remove(assetId)}
 						/>
 					{:else}
 						<div
@@ -542,7 +545,7 @@
 				<div class="min-w-0">
 					<span class="block font-sans text-xs text-text-muted">From</span>
 					<h2 class="m-0 text-lg font-medium tracking-tight">
-						DAX / MDAX / SDAX
+						Assets
 					</h2>
 				</div>
 				<span
@@ -581,7 +584,7 @@
 					<span
 						class="mr-[5px] align-baseline text-sm font-normal text-text-muted"
 						>From</span
-					>DAX / MDAX / SDAX
+					>Assets
 				</h2>
 				<span class="font-mono text-xs text-text-tertiary tabular-nums">
 					{#if searchTerm !== ""}

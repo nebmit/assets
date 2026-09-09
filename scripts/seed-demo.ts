@@ -20,7 +20,7 @@ import {
 	instrument,
 	issuer,
 	newsItem,
-	shortPositionSnapshot
+	shortPositionSnapshot, listing, fxRate
 } from '../src/lib/server/db/schema.js';
 import { runSignals } from '../src/lib/server/signals/engine.js';
 
@@ -220,12 +220,12 @@ async function main(): Promise<void> {
 				issuerId: iss.id,
 				isin: company.isin,
 				wkn: company.wkn,
-				ticker: company.ticker,
-				currency: 'EUR',
+				shortDisclosureSource: 'bundesanzeiger',
 				firstSeen: isoDaysAgo(370),
 				lastSeen: RUN_DATE
 			})
 			.returning();
+		const [quote] = await db.insert(listing).values({ instrumentId: inst.id, symbol: company.ticker, currency: 'EUR', mic: 'XETR', source: 'boerse_frankfurt', validFrom: isoDaysAgo(1100) }).returning();
 		await db.insert(indexMembership).values({
 			instrumentId: inst.id,
 			indexName: 'DAX',
@@ -233,12 +233,12 @@ async function main(): Promise<void> {
 		});
 
 		await db.insert(eodPrice).values(
-			priceWalk(company).map((p) => ({
-				instrumentId: inst.id,
+			priceWalk(company).flatMap((p) => ['raw', 'split'].map((adjustment) => ({
+				listingId: quote.id, adjustment, source: 'boerse_frankfurt', feed: 'XETR', sourceRecordId: `demo:${quote.id}:${p.tradeDate}:${adjustment}`, observedAt: new Date(`${p.tradeDate}T21:00:00Z`),
 				tradeDate: p.tradeDate,
 				close: String(p.close),
 				currency: 'EUR'
-			}))
+			})))
 		);
 
 		await db.insert(fundamental).values([
@@ -247,8 +247,8 @@ async function main(): Promise<void> {
 				metric: 'eps_basic',
 				value: String(company.eps),
 				currency: 'EUR',
-				periodEnd: isoDaysAgo(120),
-				publishedDate: isoDaysAgo(100),
+				periodEnd: isoDaysAgo(1),
+				publishedDate: isoDaysAgo(1),
 				source: 'boerse_frankfurt'
 			},
 			{
@@ -256,8 +256,8 @@ async function main(): Promise<void> {
 				metric: 'market_cap',
 				value: String(company.marketCap),
 				currency: 'EUR',
-				periodEnd: isoDaysAgo(30),
-				publishedDate: isoDaysAgo(30),
+				periodEnd: isoDaysAgo(1),
+				publishedDate: isoDaysAgo(1),
 				source: 'boerse_frankfurt'
 			},
 			...(company.dividend === undefined
@@ -268,8 +268,8 @@ async function main(): Promise<void> {
 							metric: 'dividend_per_share',
 							value: String(company.dividend),
 							currency: 'EUR',
-							periodEnd: isoDaysAgo(120),
-							publishedDate: isoDaysAgo(100),
+							periodEnd: isoDaysAgo(1),
+							publishedDate: isoDaysAgo(1),
 							source: 'boerse_frankfurt' as const
 						}
 					]),
@@ -281,8 +281,8 @@ async function main(): Promise<void> {
 							metric: 'price_book',
 							value: String(company.priceBook),
 							currency: 'EUR',
-							periodEnd: isoDaysAgo(30),
-							publishedDate: isoDaysAgo(30),
+							periodEnd: isoDaysAgo(1),
+							publishedDate: isoDaysAgo(1),
 							source: 'boerse_frankfurt' as const
 						}
 					])
@@ -297,7 +297,7 @@ async function main(): Promise<void> {
 					partyName: t.who,
 					partyRole: t.role,
 					side: t.side,
-					instrumentType: 'Aktie',
+					instrumentType: 'common_share',
 					amount: String(t.amount),
 					currency: 'EUR',
 					transactionDate: isoDaysAgo(t.daysAgo),
@@ -324,6 +324,25 @@ async function main(): Promise<void> {
 			);
 		}
 	}
+
+	// Synthetic US classes exercise native money, absent ISINs and missing-data states.
+	for (const [i, name] of ['Northstar Software (demo)', 'Clearwater Industries (demo)'].entries()) {
+		const [entity] = await db.insert(issuer).values({ name, sector: i === 0 ? 'Technology' : 'Industrials', secMetadata: { status: 'included', listings: [{ symbol: i === 0 ? 'NSTAR' : 'CLEAR', name: 'Common Stock', exchange: 'Q', excludedReason: null }] } }).returning();
+		const [asset] = await db.insert(instrument).values({ issuerId: entity.id, securityClass: 'Common Stock', firstSeen: isoDaysAgo(370), lastSeen: RUN_DATE }).returning();
+		const [quote] = await db.insert(listing).values({ instrumentId: asset.id, symbol: i === 0 ? 'NSTAR' : 'CLEAR', currency: 'USD', mic: 'XNAS', source: 'alpaca', validFrom: isoDaysAgo(1100), metadata: i === 0 ? { actionsCheckedAt: `${isoDaysAgo(1)}T10:00:00.000Z`, actionsCoveredFrom: isoDaysAgo(1460) } : {} }).returning();
+		await db.insert(indexMembership).values({ instrumentId: asset.id, indexName: 'sp500', validFrom: isoDaysAgo(370) });
+		if (i === 0) {
+			await db.insert(eodPrice).values(priceWalk({ ...COMPANIES[0], price: 84.5 }).map((p) => ({ listingId: quote.id, tradeDate: p.tradeDate, close: String(p.close), currency: 'USD', source: 'alpaca', feed: 'sip', observedAt: new Date(`${p.tradeDate}T21:00:00Z`), sourceRecordId: `demo:${quote.id}:${p.tradeDate}` })));
+			await db.insert(fundamental).values([
+				{ issuerId: entity.id, metric: 'net_income_common', value: '800000000', currency: 'USD', unit: 'USD', reportingBasis: 'common_basic', periodType: 'FY', periodStart: '2025-04-01', periodEnd: '2026-03-31', publishedDate: '2026-05-01', source: 'sec', qualification: 'unqualified' },
+				{ issuerId: entity.id, metric: 'weighted_average_shares_basic', value: '100000000', unit: 'shares', reportingBasis: 'basic', periodType: 'FY', periodStart: '2025-04-01', periodEnd: '2026-03-31', publishedDate: '2026-05-01', source: 'sec', qualification: 'unqualified' },
+				{ issuerId: entity.id, metric: 'shares_outstanding', value: '100000000', unit: 'shares', periodEnd: '2026-03-31', publishedDate: '2026-05-01', source: 'sec', qualification: 'unqualified' }
+			]);
+		}
+		await db.insert(insiderTransaction).values({ issuerId: entity.id, instrumentId: asset.id, source: 'sec', issuerNameRaw: name, partyName: 'Demo executive', side: 'buy', price: '80', volume: i === 0 ? '250000' : '10000', transactionDate: isoDaysAgo(2), publishedDate: isoDaysAgo(1), naturalKeyHash: `demo-us-insider:${i}`, raw: { derivative: false, securityTitle: 'Common Stock', transactionCode: 'P', owners: [{ cik: `demo-owner-${i}`, name: 'Demo executive', officer: true, director: true, tenPercentOwner: false }] } });
+		await db.insert(newsItem).values({ issuerId: entity.id, source: 'sec', externalId: `demo-us-news:${i}`, headline: 'Quarterly report: financial results (demo)', newsType: '10-Q', publishedDate: isoDaysAgo(1), publishedAt: new Date(`${isoDaysAgo(1)}T09:00:00Z`), naturalKeyHash: `demo-us-news:${i}` });
+	}
+	await db.insert(fxRate).values({ date: isoDaysAgo(2), currency: 'USD', unitsPerEur: '1.15', observedAt: new Date(`${isoDaysAgo(2)}T10:00:00Z`), evidence: { demo: true } });
 
 	// Synthetic public-register snapshot for UI review; these are NOT real positions.
 	await db.insert(shortPositionSnapshot).values({

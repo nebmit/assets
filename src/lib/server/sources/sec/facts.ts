@@ -4,7 +4,10 @@ import { accession, cik, date } from './parse.js';
 import type { Metric } from '../../fundamentals/metrics.js';
 import { hash } from './client.js';
 
+export const SEC_NORMALIZATION_VERSION = 6;
+
 export const conceptMappings = [
+	['net_income_common', 'NetIncomeLossAvailableToCommonStockholdersBasic', 'common_basic'],
 	['eps_basic', 'EarningsPerShareBasic', 'basic'],
 	['eps_diluted', 'EarningsPerShareDiluted', 'diluted'],
 	['dividend_per_share', 'CommonStockDividendsPerShareDeclared', 'declared_common'],
@@ -14,6 +17,15 @@ export const conceptMappings = [
 	['weighted_average_shares_basic', 'WeightedAverageNumberOfSharesOutstandingBasic', 'basic'],
 	['weighted_average_shares_diluted', 'WeightedAverageNumberOfDilutedSharesOutstanding', 'diluted'],
 	['equity', 'StockholdersEquity', 'parent'],
+	['common_capital', 'CommonStocksIncludingAdditionalPaidInCapital', 'common_capital'],
+	['common_capital', 'CommonStockIncludingAdditionalPaidInCapital', 'common_capital'],
+	['common_stock_value', 'CommonStockValue', 'common_par'],
+	['additional_paid_in_capital', 'AdditionalPaidInCapitalCommonStock', 'common_apic'],
+	['retained_earnings', 'RetainedEarningsAccumulatedDeficit', 'retained'],
+	['other_comprehensive_income', 'AccumulatedOtherComprehensiveIncomeLossNetOfTax', 'accumulated'],
+	['treasury_stock', 'TreasuryStockValue', 'treasury'],
+	['preferred_shares_issued', 'PreferredStockSharesIssued', 'preferred'],
+	['preferred_equity', 'PreferredStockValue', 'preferred'],
 	['equity', 'StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest', 'including_noncontrolling'],
 	['revenue', 'RevenueFromContractWithCustomerExcludingAssessedTax', 'excluding_assessed_tax'],
 	['revenue', 'RevenueFromContractWithCustomerIncludingAssessedTax', 'including_assessed_tax'],
@@ -24,7 +36,7 @@ export const conceptMappings = [
 ] as const satisfies readonly (readonly [Metric, string, string])[];
 const factSchema = z.object({
 	val: z.union([z.number().finite(), z.string()]), start: date.optional(), end: date,
-	accn: accession, form: z.string(), filed: date, fy: z.number().nullish(), fp: z.string().nullish(), frame: z.string().optional()
+	accn: accession, form: z.string(), filed: date, fy: z.number().nullish(), fp: z.string().nullish(), frame: z.string().optional(), decimals: z.union([z.number().int(), z.literal('INF')]).optional()
 });
 export interface NormalizedFact {
 	metric: string; value: string; currency: string | null; unit: string;
@@ -53,7 +65,7 @@ export function normalizeFacts(input: unknown, issuerCik: string, payloadHash: s
 				if (!/^(10-K|10-Q)(\/A)?$/.test(f.form) || f.end < cutoff) continue;
 				if (typeof f.val === 'number' && Number.isInteger(f.val) && !Number.isSafeInteger(f.val)) { issue(`unsafe_numeric_precision:${concept}`); continue; }
 				const decimal = new Decimal(f.val); if (!decimal.isFinite()) throw new Error('nonfinite financial value');
-				const instant = ['shares_outstanding', 'equity'].includes(metric);
+				const instant = ['shares_outstanding', 'equity', 'preferred_equity', 'common_capital', 'common_stock_value', 'additional_paid_in_capital', 'retained_earnings', 'other_comprehensive_income', 'treasury_stock', 'preferred_shares_issued'].includes(metric);
 				if (instant === Boolean(f.start)) { issue(`invalid_period:${concept}`); continue; }
 				let periodType = 'INSTANT';
 				if (f.start) {
@@ -61,12 +73,12 @@ export function normalizeFacts(input: unknown, issuerCik: string, payloadHash: s
 					periodType = days >= 350 && days <= 380 ? 'FY' : days >= 70 && days <= 110 ? 'Q' : days >= 150 && days <= 210 ? 'YTD_6M' : days >= 240 && days <= 300 ? 'YTD_9M' : 'UNSUPPORTED';
 					if (periodType === 'UNSUPPORTED') { issue(`ambiguous_duration:${concept}`); continue; }
 				}
-				const identity = [issuerCik, payloadHash, f.accn, taxonomy, concept, unit, f.start ?? '', f.end, basis, decimal.toString()];
+				const identity = [SEC_NORMALIZATION_VERSION, issuerCik, payloadHash, f.accn, taxonomy, concept, unit, f.start ?? '', f.end, basis, decimal.toString()];
 				const normalized: NormalizedFact = {
 					metric, value: decimal.toString(), currency: isShares ? null : unit.slice(0, 3), unit,
 					periodStart: f.start ?? null, periodEnd: f.end, periodType, reportingBasis: basis,
 					accession: f.accn, filedDate: f.filed, sourceRecordId: hash(JSON.stringify(identity)),
-					metadata: { taxonomy, concept, normalizationVersion: 1, payloadHash, form: f.form, fy: f.fy, fp: f.fp, frame: f.frame, comparisonStatus: 'unqualified_share_and_split_basis' }
+					metadata: { taxonomy, concept, decimals: f.decimals ?? (metric.startsWith('eps_') ? Math.max(2, decimal.decimalPlaces()) : null), precisionBasis: f.decimals === undefined ? 'companyfacts_default' : 'reported', normalizationVersion: SEC_NORMALIZATION_VERSION, payloadHash, form: f.form, fy: f.fy, fp: f.fp, frame: f.frame, comparisonStatus: 'unqualified_share_and_split_basis' }
 				};
 				// Group concepts competing for the same semantic output; preserve distinct bases.
 				const key = JSON.stringify([metric, basis, f.accn, f.start, f.end]);
@@ -75,7 +87,11 @@ export function normalizeFacts(input: unknown, issuerCik: string, payloadHash: s
 		}
 	}
 	for (const candidates of groups.values()) {
-		if (new Set(candidates.map((f) => `${f.unit}:${f.value}`)).size > 1) { issue(`conflicting_facts:${candidates[0].metric}`); continue; }
+		if (new Set(candidates.map((f) => `${f.unit}:${f.value}`)).size > 1) {
+			issue(`conflicting_facts:${candidates[0].metric}`);
+			result.facts.push(...candidates.map((f) => ({ ...f, metadata: { ...f.metadata, comparisonStatus: 'conflicting_source_values' } })));
+			continue;
+		}
 		// Mapping order is deterministic; exact repeats and semantically equivalent tags collapse.
 		result.facts.push(candidates[0]);
 	}

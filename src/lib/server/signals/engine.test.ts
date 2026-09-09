@@ -20,14 +20,14 @@ describe('rankResults', () => {
 describe('evaluateSignals surfaced feed', () => {
 	function makeInstrument(id: number, overrides: Partial<UniverseInstrument>): UniverseInstrument {
 		return {
-			shortSellers: unknownShortSellers(),
+			shortSellers: unknownShortSellers(), assetId: 'test-asset', currency: 'EUR',
 		instrumentId: id,
 			issuerId: id,
 			isin: `DE${String(id).padStart(10, '0')}`,
 			ticker: `T${id}`,
 			name: `Company ${id}`,
 			sector: 'Industrial products',
-			indexName: 'DAX',
+			sizeBand: 'large',
 			close: 100,
 			closeDate: '2026-07-02',
 			epsBasic: 10,
@@ -45,10 +45,10 @@ describe('evaluateSignals surfaced feed', () => {
 	/** Material buy: well above the 100k DAX floor even after decay. */
 	const bigBuy = {
 		partyName: 'B',
-		partyRole: 'executive_board' as const,
+		partyRole: 'executive' as const,
 		side: 'buy' as const,
-		instrumentType: 'Aktie',
-		amount: 400_000,
+		instrumentType: 'common_share',
+		amount: 400_000, amountEur: 400_000, currency: 'EUR', buyerKey: 'Buyer',
 		transactionDate: '2026-07-01',
 		publishedDate: '2026-07-01'
 	};
@@ -105,7 +105,7 @@ describe('evaluateSignals surfaced feed', () => {
 	it('propagates the newest event date of fired event signals', () => {
 		const bought = makeInstrument(1, {
 			epsBasic: -1,
-			insiderTx: [bigBuy, { ...bigBuy, partyName: 'C', publishedDate: '2026-06-20', transactionDate: '2026-06-19' }]
+			insiderTx: [bigBuy, { ...bigBuy, partyName: 'C', buyerKey: 'C', publishedDate: '2026-06-20', transactionDate: '2026-06-19' }]
 		});
 		const results = evaluateSignals(ctxOf([bought]));
 		const row = results.get(SURFACED_SLUG)?.find((r) => r.instrumentId === 1);

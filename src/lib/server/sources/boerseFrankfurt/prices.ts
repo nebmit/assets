@@ -1,6 +1,9 @@
-import { eq, isNull, max, min } from 'drizzle-orm';
+import { storePrices } from '../../assets/observations.js';
+import { bfMembers } from '../../assets/listings.js';
+import { fingerprint } from '../../assets/evidence.js';
+import { and, eq, max, min } from 'drizzle-orm';
 import { subtractYears } from '../../../date.js';
-import { eodPrice, indexMembership, instrument } from '../../db/schema.js';
+import { eodPrice, listing } from '../../db/schema.js';
 import type { Job, JobContext, JobStats } from '../../pipeline/types.js';
 import { addDays } from '../../util.js';
 import { bfRequest, BF_SOURCE, BfUnavailableError } from './client.js';
@@ -11,13 +14,14 @@ const PAGE_SIZE = 1000;
 
 /**
  * The snapshot job supplies the daily close for every instrument, so
- * price_history (one request per instrument — expensive against the API's
- * rate limits) is only fetched for uncovered history or after multi-day gaps.
+ * raw price_history is fetched for uncovered history or after multi-day gaps.
+ * The separate split-adjusted history is refreshed daily.
  */
 const GAP_REPAIR_DAYS = 4;
 
 interface PriceMember {
 	id: number;
+	listingId: number;
 	isin: string;
 	coveredFrom: string | null;
 }
@@ -35,15 +39,7 @@ export interface HistoryRange {
 }
 
 async function currentMembers(ctx: JobContext): Promise<PriceMember[]> {
-	return ctx.db
-		.selectDistinct({
-			id: instrument.id,
-			isin: instrument.isin,
-			coveredFrom: instrument.priceHistoryCoveredFrom
-		})
-		.from(instrument)
-		.innerJoin(indexMembership, eq(indexMembership.instrumentId, instrument.id))
-		.where(isNull(indexMembership.validTo));
+	return bfMembers(ctx.db);
 }
 
 /** Oldest and latest stored trade dates per instrument, one query for the whole universe. */
@@ -52,12 +48,13 @@ async function priceWatermarks(
 ): Promise<Map<number, { oldest: string; newest: string }>> {
 	const rows = await ctx.db
 		.select({
-			instrumentId: eodPrice.instrumentId,
+			instrumentId: eodPrice.listingId,
 			oldest: min(eodPrice.tradeDate),
 			newest: max(eodPrice.tradeDate)
 		})
 		.from(eodPrice)
-		.groupBy(eodPrice.instrumentId);
+		.where(and(eq(eodPrice.source, BF_SOURCE), eq(eodPrice.feed, 'XETR'), eq(eodPrice.adjustment, 'raw')))
+		.groupBy(eodPrice.listingId);
 	const byInstrument = new Map<number, { oldest: string; newest: string }>();
 	for (const row of rows) {
 		if (row.oldest !== null && row.newest !== null) {
@@ -96,7 +93,7 @@ export function planHistoryRanges(runDate: string, coverage: PriceCoverage): His
 	return ranges;
 }
 
-async function fetchHistory(isin: string, range: HistoryRange) {
+async function fetchHistory(isin: string, range: HistoryRange, cleanSplit = false) {
 	const rows: {
 		date: string;
 		open: number | null;
@@ -112,7 +109,7 @@ async function fetchHistory(isin: string, range: HistoryRange) {
 				mic: 'XETR',
 				minDate: range.minDate,
 				maxDate: range.maxDate,
-				cleanSplit: false,
+				cleanSplit,
 				cleanPayout: false,
 				cleanSubscription: false,
 				limit: PAGE_SIZE,
@@ -137,7 +134,7 @@ async function fetchHistory(isin: string, range: HistoryRange) {
 /**
  * EOD price history for current index members: three-year backfill for new
  * instruments and legacy prefixes, plus gap repair when snapshot closes lag.
- * Steady state makes zero requests.
+ * Split-adjusted history is refreshed daily to keep the chart basis consistent.
  */
 export const pricesJob: Job = {
 	name: 'bf_prices',
@@ -152,31 +149,29 @@ export const pricesJob: Job = {
 		let backfilled = 0;
 		for (const member of members) {
 			try {
-				const watermark = watermarks.get(member.id);
+				const watermark = watermarks.get(member.listingId);
 				const coverage: PriceCoverage = {
 					oldest: watermark?.oldest ?? null,
 					newest: watermark?.newest ?? null,
 					coveredFrom: member.coveredFrom
 				};
-				const ranges = planHistoryRanges(ctx.runDate, coverage);
+				const ranges: (HistoryRange & { split?: boolean })[] = [...planHistoryRanges(ctx.runDate, coverage), { minDate: subtractYears(ctx.runDate, BACKFILL_YEARS), maxDate: addDays(ctx.runDate, -1), kind: 'gap', split: true }];
 				const targetFrom = subtractYears(ctx.runDate, BACKFILL_YEARS);
 				const needsCoverageCheckpoint =
 					member.coveredFrom === null || member.coveredFrom > targetFrom;
-				if (ranges.length === 0 && !needsCoverageCheckpoint) {
-					skipped++;
-					continue;
-				}
 				let memberRows = 0;
 				for (const range of ranges) {
-					const rows = await fetchHistory(member.isin, range);
+					const rows = await fetchHistory(member.isin, range, range.split);
 					requests++;
 					if (range.kind === 'backfill') backfilled++;
 					if (rows.length === 0) continue;
-					const insertedRows = await ctx.db
-						.insert(eodPrice)
-						.values(
+					const insertedRows = await storePrices(ctx.db,
 							rows.map((row) => ({
-								instrumentId: member.id,
+								listingId: member.listingId,
+								source: BF_SOURCE, feed: 'XETR', observedAt: new Date(),
+								adjustment: range.split ? 'split' : 'raw',
+								evidence: { cleanSplit: range.split === true, cleanPayout: false, cleanSubscription: false, through: range.maxDate },
+								sourceRecordId: fingerprint([BF_SOURCE, member.listingId, range.split ? 'split' : 'raw', row]),
 								tradeDate: row.date,
 								open: row.open?.toString(),
 								high: row.high?.toString(),
@@ -185,19 +180,17 @@ export const pricesJob: Job = {
 								volume: row.turnoverPieces === null ? null : Math.round(row.turnoverPieces),
 								currency: 'EUR'
 							}))
-						)
-						.onConflictDoNothing()
-						.returning({ instrumentId: eodPrice.instrumentId });
-					memberRows += insertedRows.length;
+						);
+					memberRows += insertedRows;
 				}
 				if (needsCoverageCheckpoint) {
 					await ctx.db
-						.update(instrument)
+						.update(listing)
 						.set({ priceHistoryCoveredFrom: targetFrom })
-						.where(eq(instrument.id, member.id));
+						.where(eq(listing.id, member.listingId));
 				}
 				inserted += memberRows;
-				if (ranges.length === 0 || memberRows === 0) skipped++;
+				if (memberRows === 0) skipped++;
 			} catch (err) {
 				// API in the penalty box: abort instead of grinding through the rest
 				if (err instanceof BfUnavailableError) throw err;

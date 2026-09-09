@@ -7,7 +7,7 @@ import {
 	indexMembership,
 	insiderTransaction,
 	instrument,
-	issuer
+	issuer, listing
 } from '../src/lib/server/db/schema.js';
 import { buildContext } from '../src/lib/server/signals/context.js';
 
@@ -30,27 +30,28 @@ describe.skipIf(!url)('buildContext (integration)', () => {
 		const [iss] = await handle.db.insert(issuer).values({ name: 'Test AG', sector: 'Software' }).returning();
 		const [inst] = await handle.db
 			.insert(instrument)
-			.values({ issuerId: iss.id, isin: 'DE0000000001', ticker: 'TST', firstSeen: '2026-01-01', lastSeen: RUN_DATE })
+			.values({ issuerId: iss.id, isin: 'DE0000000001', firstSeen: '2026-01-01', lastSeen: RUN_DATE })
 			.returning();
 		await handle.db
 			.insert(indexMembership)
 			.values({ instrumentId: inst.id, indexName: 'DAX', validFrom: '2026-01-01' });
+		const [quote] = await handle.db.insert(listing).values({ instrumentId: inst.id, symbol: 'TST', mic: 'XETR', currency: 'EUR', source: 'boerse_frankfurt', validFrom: '2026-01-01' }).returning();
 		await handle.db.insert(eodPrice).values([
-			{ instrumentId: inst.id, tradeDate: '2026-06-30', close: '90' },
-			{ instrumentId: inst.id, tradeDate: '2026-07-01', close: '100' },
+			{ listingId: quote.id, currency: 'EUR', source: 'boerse_frankfurt', feed: 'XETR', tradeDate: '2026-06-30', close: '90', sourceRecordId: 'p1' },
+			{ listingId: quote.id, currency: 'EUR', source: 'boerse_frankfurt', feed: 'XETR', tradeDate: '2026-07-01', close: '100', sourceRecordId: 'p2' },
 			// future price must not leak into a 07-02 run
-			{ instrumentId: inst.id, tradeDate: '2026-07-03', close: '999' }
+			{ listingId: quote.id, currency: 'EUR', source: 'boerse_frankfurt', feed: 'XETR', tradeDate: '2026-07-03', close: '999', sourceRecordId: 'p3' }
 		]);
 		await handle.db.insert(fundamental).values([
-			{ issuerId: iss.id, metric: 'eps_basic', value: '5', periodEnd: '2026-06-01', publishedDate: '2026-06-01', source: 'boerse_frankfurt' },
+			{ issuerId: iss.id, currency: 'EUR', metric: 'eps_basic', value: '5', periodEnd: '2026-06-30', publishedDate: '2026-06-30', source: 'boerse_frankfurt' },
 			// newer value but published after the run date: lookahead, must be ignored
-			{ issuerId: iss.id, metric: 'eps_basic', value: '8', periodEnd: '2026-07-03', publishedDate: '2026-07-03', source: 'boerse_frankfurt' }
+			{ issuerId: iss.id, currency: 'EUR', metric: 'eps_basic', value: '8', periodEnd: '2026-07-03', publishedDate: '2026-07-03', source: 'boerse_frankfurt' }
 		]);
 		await handle.db.insert(insiderTransaction).values([
 			{
 				issuerId: iss.id,
 				issuerNameRaw: 'Test AG',
-				side: 'buy',
+				side: 'buy', currency: 'EUR', instrumentType: 'common_share',
 				partyRole: 'executive_board',
 				amount: '50000',
 				transactionDate: '2026-06-25',
@@ -61,7 +62,7 @@ describe.skipIf(!url)('buildContext (integration)', () => {
 				// transacted inside the window but published after run date: no lookahead
 				issuerId: iss.id,
 				issuerNameRaw: 'Test AG',
-				side: 'buy',
+				side: 'buy', currency: 'EUR', instrumentType: 'common_share',
 				partyRole: 'executive_board',
 				amount: '99999',
 				transactionDate: '2026-07-01',
@@ -72,7 +73,7 @@ describe.skipIf(!url)('buildContext (integration)', () => {
 				// outside the 30-day transaction window
 				issuerId: iss.id,
 				issuerNameRaw: 'Test AG',
-				side: 'buy',
+				side: 'buy', currency: 'EUR', instrumentType: 'common_share',
 				partyRole: 'executive_board',
 				amount: '11111',
 				transactionDate: '2026-05-01',

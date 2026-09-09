@@ -10,7 +10,7 @@ import { ISSUER_DETAIL_DESCRIPTION, signalTools } from './tools.js';
 export interface McpDeps {
 	latestRunDate(): Promise<string | null>;
 	signalReport(slug: string, runDate: string, top: number): Promise<EnrichedSignalReport | null>;
-	issuerDetail(isin: string, runDate: string): Promise<IssuerDetail | null>;
+	issuerDetail(assetId: string, runDate: string): Promise<IssuerDetail | null>;
 }
 
 const runDateParam = z
@@ -24,12 +24,7 @@ const inputSchema = {
 	limit: z.number().int().min(1).max(50).default(10).describe('Max rows returned (rank order, best first).')
 };
 
-const partyRole = z
-	.enum(['executive_board', 'supervisory_board', 'related_party', 'other'])
-	.describe(
-		'Filing role: executive_board (Vorstand), supervisory_board (Aufsichtsrat), related_party ' +
-			'(person/entity in enger Beziehung to an insider), other (Sonstige Führungsperson)'
-	);
+const partyRole = z.enum(['executive', 'director', 'related_party', 'other']).describe('Normalized executive, director, related-party or other reporting role');
 
 const dealingRow = z.object({
 	party: z
@@ -40,22 +35,26 @@ const dealingRow = z.object({
 	roleWeight: z
 		.number()
 		.describe('Weight the signal applies to this role (executive 1.0 … related party 0.6)'),
-	side: z.enum(['buy', 'sell', 'other']).describe('"Art des Geschäfts" as filed: Kauf/Verkauf/Sonstiges'),
+	side: z.enum(['buy', 'sell', 'other']).describe('Normalized purchase, sale or other transaction'),
 	dealingType: z
-		.enum(['open_market_purchase', 'sale', 'settlement_or_award'])
+		.enum(['purchase', 'sale', 'settlement_or_award'])
 		.describe(
-			'Transaction nature at the granularity the BaFin CSV offers. Option exercises and RSU/' +
-				'performance-share settlements land in settlement_or_award but cannot be told apart; ' +
-				'they never count toward severity.'
+			'Normalized purchase, sale or other transaction. SEC purchases may be private; awards and exercises never count as purchases.'
 		),
 	instrumentType: z
 		.string()
 		.nullable()
-		.describe('Filed instrument type ("Aktie" = shares); only share dealings count toward severity'),
+		.describe('Normalized security type; only qualified common_share dealings count toward severity'),
 	countedInSignal: z
 		.boolean()
 		.describe('Whether this dealing entered the severity (share buy/sell with a positive amount)'),
-	amountEur: z.number().nullable().describe('Aggregate filed volume in EUR'),
+	amount: z.number().nullable().describe('Transaction value in its native currency'),
+	currency: z.string().nullable(),
+	currencyStatus: z.string(),
+	qualificationReason: z.string().nullable(),
+	source: z.string(),
+	url: z.string().nullable(),
+	owners: z.array(z.object({ id: z.string(), name: z.string(), roles: z.array(z.string()) })),
 	price: z.number().nullable().describe('Filed average price per unit'),
 	transactionDate: z.string(),
 	publishedDate: z.string().describe('Publication date — decay and no-lookahead run off this'),
@@ -83,7 +82,7 @@ const insiderComponents = z
 		buyValueEur: z.number().nullable().describe('Raw (unweighted) insider share buying in the window, EUR'),
 		sellValueEur: z.number().nullable().describe('Raw insider share selling in the window, EUR'),
 		weightedBuyEur: z.number().nullable().describe('Role-weighted, publication-decayed buying, EUR'),
-		floorEur: z.number().nullable().describe('Cap-band materiality floor (DAX 100k / MDAX 50k / SDAX 25k)'),
+		floorEur: z.number().nullable().describe('Cap-band materiality floor (large 100k / mid 50k / small 25k)'),
 		passesSizeGate: z
 			.boolean()
 			.nullable()
@@ -110,7 +109,7 @@ const relativeValueComponents = z
 		peerGroup: z
 			.string()
 			.nullable()
-			.describe('Peer group used: "sector:<super-sector>" or "index:<DAX|MDAX|SDAX>" fallback'),
+			.describe('Peer group used: "sector:<super-sector>" or "size:<large|mid|small>" fallback'),
 		discountToPeerMedian: z
 			.number()
 			.nullable()
@@ -125,10 +124,13 @@ const relativeValueComponents = z
 	.describe('Relative-value severity sub-components; null when the run has no row for this signal');
 
 const rowSchema = z.object({
+	coverage: z.record(z.object({ state: z.string(), reason: z.string().nullable() })),
 	shortSellers: shortSellerAnalysisSchema.describe('Public short seller evidence saved with this run; disclosed totals are not total market short interest'),
 	rank: z.number().describe('1 = strongest'),
 	ticker: z.string().nullable(),
-	isin: z.string(),
+	assetId: z.string().uuid(),
+	isin: z.string().nullable(),
+	currency: z.string(),
 	name: z.string().describe('Issuer name'),
 	score: z
 		.number()
@@ -151,12 +153,13 @@ const rowSchema = z.object({
 		),
 	fundamentals: z
 		.object({
-			price: z.number().nullable().describe('Latest close on or before the run date, EUR'),
+			currency: z.string(),
+			price: z.number().nullable().describe('Latest completed daily close in native currency'),
 			priceDate: z.string().nullable(),
 			ytdReturn: z.number().nullable().describe('Price return since the prior year-end close'),
 			high52w: z.number().nullable().describe('Trailing 52-week high close'),
 			low52w: z.number().nullable().describe('Trailing 52-week low close'),
-			marketCap: z.number().nullable().describe('Point-in-time market capitalisation, EUR'),
+			marketCap: z.number().nullable().describe('Point-in-time market capitalisation in native currency'),
 			epsBasic: z.number().nullable().describe('Point-in-time basic EPS'),
 			peTrailing: z
 				.number()
@@ -183,7 +186,7 @@ const rowSchema = z.object({
 	news: z
 		.object({
 			windowCount: z.number().describe('News items in the last 30 days up to the run date'),
-			latest: z.array(z.object({ headline: z.string(), publishedAt: z.string() }))
+			latest: z.array(z.object({ headline: z.string(), publishedAt: z.string(), source: z.string(), newsType: z.string().nullable(), form: z.string().nullable(), accession: z.string().nullable(), url: z.string().nullable() }))
 		})
 		.nullable()
 		.describe(
@@ -204,10 +207,7 @@ const outputSchema = {
 };
 
 const detailInputSchema = {
-	isin: z
-		.string()
-		.regex(/^[A-Z]{2}[A-Z0-9]{9}[0-9]$/, 'expected an ISIN (e.g. DE0007030009)')
-		.describe('ISIN of the instrument to drill into'),
+	assetId: z.string().uuid().describe('Stable assetId returned by the surfaced feed or asset catalog'),
 	runDate: runDateParam
 };
 
@@ -218,11 +218,14 @@ const metricPoint = z.object({
 });
 
 const detailOutputSchema = {
+	coverage: z.record(z.object({ state: z.string(), reason: z.string().nullable() })),
 	shortSellers: shortSellerAnalysisSchema,
-	isin: z.string(),
+	assetId: z.string().uuid(),
+	isin: z.string().nullable(),
+	currency: z.string(),
 	ticker: z.string().nullable(),
 	name: z.string().describe('Issuer name'),
-	sector: z.string().nullable().describe('Granular sector as reported by the exchange'),
+	sector: z.string().nullable().describe('Normalized sector shared across the asset universe'),
 	superSector: z.string().nullable().describe('Coarse sector bucket used for peer grouping'),
 	runDate: z.string().describe('All history is bounded by this date (no lookahead)'),
 	monthlyCloses: z
@@ -246,7 +249,8 @@ const detailOutputSchema = {
 				buys: z.array(
 					z.object({
 						transactionDate: z.string(),
-						amountEur: z.number().nullable(),
+						amount: z.number().nullable(),
+						currency: z.string().nullable(),
 						fwdReturn91d: z
 							.number()
 							.nullable()
@@ -259,7 +263,7 @@ const detailOutputSchema = {
 			'Per named insider: prior counted buys and what the price did afterwards — a repeat dip ' +
 				'buyer with positive follow-through is a different signal from a first-time buyer'
 		),
-	news: z.array(z.object({ headline: z.string(), publishedAt: z.string() })).describe('Most recent headlines (max 10)')
+	news: z.array(z.object({ headline: z.string(), publishedAt: z.string(), source: z.string(), newsType: z.string().nullable(), form: z.string().nullable(), accession: z.string().nullable(), url: z.string().nullable() })).describe('Most recent headlines (max 10)')
 };
 
 // type alias (not interface) so it satisfies the SDK's structuredContent index signature
@@ -347,12 +351,12 @@ export function buildMcpServer(deps: McpDeps): McpServer {
 			outputSchema: detailOutputSchema,
 			annotations
 		},
-		async ({ isin, runDate }) => {
+		async ({ assetId, runDate }) => {
 			try {
 				const date = runDate ?? (await deps.latestRunDate());
 				if (!date) return toolError('No signal runs exist yet — the daily pipeline has not run.');
-				const detail = await deps.issuerDetail(isin, date);
-				if (!detail) return toolError(`No instrument found for ISIN ${isin}.`);
+				const detail = await deps.issuerDetail(assetId, date);
+				if (!detail) return toolError(`No instrument found for asset ${assetId}.`);
 				return {
 					content: [{ type: 'text' as const, text: renderDetailText(detail) }],
 					structuredContent: detail as unknown as Record<string, unknown>

@@ -71,6 +71,13 @@
       "when": 1788648219765,
       "tag": "0009_lyrical_marvel_zombies",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1788723185774,
+      "tag": "0010_shared_asset_model",
+      "breakpoints": true
     }
   ]
 }

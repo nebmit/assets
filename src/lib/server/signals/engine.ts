@@ -1,9 +1,9 @@
+import { resolveSnapshots, runCutoff } from '../assets/snapshot.js';
 import { noDisclosedShortsSignal } from './definitions/noDisclosedShorts.js';
 import { eq } from 'drizzle-orm';
 import type { Db } from '../db/index.js';
-import { signal, signalDefinition, signalRun } from '../db/schema.js';
+import { signal, signalDefinition, signalRun, assetSnapshot } from '../db/schema.js';
 import type { Job, JobStats } from '../pipeline/types.js';
-import { buildContext } from './context.js';
 import { insiderConvictionSignal } from './definitions/insiderConviction.js';
 import { relativeValueSignal } from './definitions/relativeValue.js';
 import { percentileRanks } from './stats.js';
@@ -124,7 +124,9 @@ async function definitionIds(db: Db): Promise<Map<string, number>> {
  * explain both). Re-running a date replaces its signal_run atomically.
  */
 export async function runSignals(db: Db, runDate: string): Promise<JobStats> {
-	const ctx = await buildContext(db, runDate);
+	const cutoff = runCutoff(runDate);
+	const snapshots = await resolveSnapshots(db, runDate, cutoff);
+	const ctx = { runDate, instruments: snapshots };
 	if (ctx.instruments.length === 0) throw new Error(`universe is empty on ${runDate} — run ingestion first`);
 	const results = evaluateSignals(ctx);
 	const ids = await definitionIds(db);
@@ -134,9 +136,13 @@ export async function runSignals(db: Db, runDate: string): Promise<JobStats> {
 		await tx.delete(signalRun).where(eq(signalRun.runDate, runDate));
 		const [run] = await tx
 			.insert(signalRun)
-			.values({ runDate, status: 'running', universeSize: ctx.instruments.length })
+			.values({ runDate, status: 'running', universeSize: ctx.instruments.length, cutoffAt: cutoff, definitionVersions: { snapshot: { version: 2, sectorTaxonomyVersion: 1, priceReturnBasis: 'split_adjusted_native_price_return' }, ...Object.fromEntries(signalDefinitions.map((d) => [d.slug, { version: d.version, params: d.params }])) } })
 			.returning({ id: signalRun.id });
 
+		// Bound JSON serialization and driver parameter buffers while retaining atomic publication.
+		for (let offset = 0; offset < snapshots.length; offset += 10) {
+			await tx.insert(assetSnapshot).values(snapshots.slice(offset, offset + 10).map((s) => ({ runId: run.id, instrumentId: s.instrumentId, payload: s })));
+		}
 		for (const [slug, ranked] of results) {
 			const definitionId = ids.get(slug) as number;
 			await tx.insert(signal).values(

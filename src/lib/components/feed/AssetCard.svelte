@@ -1,8 +1,7 @@
 <script lang="ts">
 	import ShortSellerPanel from './ShortSellerPanel.svelte';
-	import { FILINGS_SEARCH_URL } from '$lib/externalLinks.js';
 	import { FINANCIAL_TERMS, type FinancialTerm } from '$lib/financialTerms.js';
-	import { formatCompactEur, formatPrice, formatRatio } from '$lib/format.js';
+	import { formatCompactNumber, formatPrice, formatRatio } from '$lib/format.js';
 	import type { CardData } from '$lib/feed/types.js';
 	import { getIgnoreConfirm, getIgnored, getWatchlist } from '$lib/userData/context.js';
 	import Badge from '../ds/Badge.svelte';
@@ -33,7 +32,7 @@
 	const watchlist = getWatchlist();
 	const ignored = getIgnored();
 	const ignoreConfirm = getIgnoreConfirm();
-	const watchlisted = $derived(watchlist.isins.has(card.isin));
+	const watchlisted = $derived(watchlist.assetIds.has(card.assetId));
 	/** Hidden while signed out/unsupported; the tab itself explains those states. */
 	const watchable = $derived(
 		watchlist.status === 'ready' ||
@@ -51,7 +50,9 @@
 			: 'Unlocks your encrypted watchlist with one passkey tap'
 	);
 
-	const equityUrl = $derived(`https://www.boerse-frankfurt.de/equity/${card.isin.toLowerCase()}`);
+	const availability = $derived(Object.entries(card.coverage).filter(([key, value]) => key !== 'observations' && value.state !== 'qualified' && value.reason));
+	const coverageLabels: Record<string, string> = { prices: 'Price', adjustments: 'Price history', eps: 'Earnings', marketCap: 'Market cap', dividend: 'Dividends', pb: 'Book value', filings: 'Financial filings', insiderFilings: 'Insider filings' };
+	const equityUrl = $derived(card.links.quote);
 
 	const lifecycleTone = $derived(
 		card.lifecycle === 'new' || card.lifecycle === 'strengthening' ? 'up' : 'neutral'
@@ -161,8 +162,8 @@
 				{/if}
 				<span class="text-lg font-medium tracking-tight">{card.name}</span>
 				<span class="font-mono tabular-nums">
-					<Link href={equityUrl} external variant="quiet" size="xs">
-						{card.isin}{#if card.wkn !== null}&nbsp;· {card.wkn}{/if}
+					<Link href={equityUrl ?? card.links.filings ?? '#'} external variant="quiet" size="xs">
+						{card.ticker ?? card.isin ?? card.name}{#if card.isin && card.ticker}&nbsp;· {card.isin}{/if}{#if card.wkn !== null}&nbsp;· {card.wkn}{/if}
 					</Link>
 				</span>
 			</div>
@@ -170,16 +171,17 @@
 				{#if card.price === null}
 					<span class="font-mono text-3xl font-medium text-text-muted">—</span>
 				{:else}
-					<span class="font-mono text-sm text-text-tertiary">€</span>
+					<span class="font-mono text-sm text-text-tertiary">{card.currency}</span>
 					<span class="font-mono text-3xl leading-none font-medium tracking-tight tabular-nums">
 						{formatPrice(card.price)}
 					</span>
 				{/if}
 			</div>
+			<span class="text-2xs text-text-muted">{card.source === 'alpaca' ? 'Consolidated daily close · SIP' : 'Xetra daily close'}</span>
 		</div>
 
 		<div class="flex min-w-0 flex-1 border-b border-border-subtle md:border-r md:border-b-0">
-			<PriceChart series={card.series} {runDate} hi52={card.hi52} lo52={card.lo52} />
+			<PriceChart currency={card.currency} series={card.series} {runDate} hi52={card.hi52} lo52={card.lo52} />
 		</div>
 
 		<div
@@ -195,7 +197,9 @@
 					<span class="micro-label">P / E vs sector</span>
 				</TermHelp>
 				<div class="flex items-baseline gap-[7px]">
-					{#if card.pe === null}
+					{#if card.eps !== null && card.eps <= 0}
+						<span class="text-xs text-text-muted">Not meaningful—nonpositive earnings</span>
+					{:else if card.pe === null}
 						<span class="font-mono text-xl font-medium text-text-muted">—</span>
 					{:else}
 						<span
@@ -240,7 +244,7 @@
 					<span class="font-sans text-2xs font-medium text-text-tertiary uppercase">EPS</span>
 				</TermHelp>
 				<span class="font-mono text-sm font-medium tabular-nums">
-					{card.eps === null ? '—' : `€${card.eps.toFixed(2)}`}
+					{card.eps === null ? '—' : `${card.currency} ${card.eps.toFixed(2)}`}
 				</span>
 				<TermHelp
 					term={FINANCIAL_TERMS.ttm.term}
@@ -262,12 +266,12 @@
 					<span class="micro-label whitespace-nowrap">Mkt cap</span>
 				</TermHelp>
 				<span class="font-mono text-sm font-medium tabular-nums">
-					{card.marketCap === null ? '—' : `€${formatCompactEur(card.marketCap)}`}
+					{card.marketCap === null ? '—' : `${card.currency} ${formatCompactNumber(card.marketCap)}`}
 				</span>
 			</div>
 			<div class="md:mt-auto md:pt-3">
 				<span class="inline-flex items-center gap-[5px]">
-					<Link href={FILINGS_SEARCH_URL} external variant="quiet" size="xs">
+					<Link href={card.links.filings ?? '#'} external variant="quiet" size="xs">
 						Filings
 					</Link>
 					<TermHelp
@@ -282,9 +286,17 @@
 	</div>
 
 	<div class="flex flex-col items-stretch border-t border-border-subtle bg-surface-sunken sm:flex-row">
-		<InsiderList insiders={card.insiders} asOf={runDate} isin={card.isin} />
-		<NewsList news={card.news} isin={card.isin} />
+		<InsiderList links={card.links} insiders={card.insiders} asOf={runDate} />
+		<NewsList news={card.news} links={card.links} />
 	</div>
+	{#if availability.length}
+		<details class="border-t border-border-subtle px-5 py-3 text-xs text-text-tertiary">
+			<summary class="cursor-pointer">Data availability</summary>
+			<ul class="mt-2 space-y-1">
+				{#each availability as [key, value]}<li>{coverageLabels[key] ?? key}: {value.reason}</li>{/each}
+			</ul>
+		</details>
+	{/if}
 	<ShortSellerPanel analysis={card.shortSellers} />
 </article>
 

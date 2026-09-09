@@ -27,7 +27,7 @@ export async function selectedEntities(ctx: JobContext) {
 	if (!selection?.indices) return ctx.db.select().from(issuer).where(isNotNull(issuer.cik));
 	if (selection.ciks === undefined) {
 		const [run] = await ctx.db.select().from(ingestionRun).where(and(eq(ingestionRun.source, 'sec'),
-			eq(ingestionRun.job, secJobName('sec_universe', ctx)), eq(ingestionRun.status, 'success')))
+			eq(ingestionRun.job, secJobName('sec_universe', ctx)), eq(ingestionRun.status, 'success'), sql`${ingestionRun.stats}->>'selection_ciks' is not null`))
 			.orderBy(sql`${ingestionRun.finishedAt} desc`).limit(1);
 		const encoded = (run?.stats as Record<string, unknown> | undefined)?.selection_ciks;
 		if (typeof encoded !== 'string') throw new Error(`No index universe snapshot; run --source=sec --job=sec_universe --indices=${selection.indices.join(',')} first`);

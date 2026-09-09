@@ -45,7 +45,7 @@ export const insiderJob: Job = {
 		const isins = [...new Set(dealings.map((d) => d.isin).filter((v): v is string => v !== null))];
 		const instruments = isins.length
 			? await ctx.db
-					.select({ isin: instrument.isin, issuerId: instrument.issuerId })
+					.select({ id: instrument.id, isin: instrument.isin, issuerId: instrument.issuerId })
 					.from(instrument)
 					.where(inArray(instrument.isin, isins))
 			: [];
@@ -61,12 +61,15 @@ export const insiderJob: Job = {
 				if (issuerId !== null) matched++;
 				return {
 					issuerId,
+					instrumentId: instruments.find((i) => i.isin === d.isin)?.id ?? null,
+					observedAt: new Date(),
+					economicKey: d.naturalKeyHash,
 					isin: d.isin,
 					issuerNameRaw: d.issuerNameRaw,
 					partyName: d.partyName,
 					partyRole: d.partyRole,
 					side: d.side,
-					instrumentType: d.instrumentType,
+					instrumentType: d.instrumentType === 'Aktie' ? 'common_share' : d.instrumentType,
 					price: d.price?.toString(),
 					amount: d.amount?.toString(),
 					currency: d.currency,

@@ -2,7 +2,7 @@ import { and, eq, sql } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { createDb, migrateDb, type DbHandle } from '../src/lib/server/db/index.js';
-import { fundamental, insiderTransaction, issuer, instrument, indexMembership, newsItem, sourceFiling, ingestionRun } from '../src/lib/server/db/schema.js';
+import { fundamental, insiderTransaction, issuer, instrument, listing, indexMembership, newsItem, sourceFiling, ingestionRun } from '../src/lib/server/db/schema.js';
 import { persistFacts, persistFiling, rememberFiling } from '../src/lib/server/sources/sec/store.js';
 import { buildContext } from '../src/lib/server/signals/context.js';
 import { issuerDetail } from '../src/lib/server/issuer/detail.js';
@@ -13,6 +13,7 @@ import type { JobContext } from '../src/lib/server/pipeline/types.js';
 const url = process.env.TEST_DATABASE_URL;
 const sample = readFileSync('tests/fixtures/sec/msft-form4.txt','utf8');
 describe.skipIf(!url)('SEC persistence and product isolation', () => {
+	let assetId: string;
 	let handle: DbHandle, ctx: JobContext, entity: typeof issuer.$inferSelect;
 	beforeAll(async () => {
 		handle = createDb(url!);
@@ -21,17 +22,19 @@ describe.skipIf(!url)('SEC persistence and product isolation', () => {
 		ctx = { db: handle.db, runDate:'2026-09-06',log:()=>{} };
 		[entity] = await handle.db.insert(issuer).values({name:'Microsoft Test',cik:'0000789019'}).returning();
 		const [inst] = await handle.db.insert(instrument).values({issuerId:entity.id,isin:'DE0000000099',firstSeen:'2026-01-01',lastSeen:ctx.runDate}).returning();
+		assetId = inst.assetId;
+		await handle.db.insert(listing).values({ instrumentId: inst.id, source: 'boerse_frankfurt', currency: 'EUR', mic: 'XETR', validFrom: '2026-01-01' });
 		await handle.db.insert(indexMembership).values({instrumentId:inst.id,indexName:'DAX',validFrom:'2026-01-01'});
-		await handle.db.insert(fundamental).values({issuerId:entity.id,metric:'eps_basic',value:'5',source:'boerse_frankfurt',periodEnd:'2026-07-01',publishedDate:'2026-07-01'});
+		await handle.db.insert(fundamental).values({issuerId:entity.id,metric:'eps_basic',value:'5',currency:'EUR',source:'boerse_frankfurt',periodEnd:'2026-09-01',publishedDate:'2026-09-01'});
 	});
 	afterAll(async () => { await handle?.sql.end(); });
 	it('supports issuers without instruments and nullable CIKs for existing issuers', async () => {
 		await handle.db.insert(issuer).values([{name:'US without security',cik:'0000320193'},{name:'Existing A'},{name:'Existing B'}]);
 		const rows = await handle.db.select().from(instrument); expect(rows).toHaveLength(1);
 	});
-	it('retains the legacy fundamental upsert constraint', async () => {
-		await handle.db.insert(fundamental).values({issuerId:entity.id,metric:'eps_basic',value:'6',source:'boerse_frankfurt',periodEnd:'2026-07-01',publishedDate:'2026-07-01'})
-			.onConflictDoUpdate({target:[fundamental.issuerId,fundamental.metric,fundamental.periodEnd,fundamental.source],targetWhere:sql`${fundamental.source} in ('boerse_frankfurt', 'esef')`,set:{value:'6'}});
+	it('retains immutable provider observations and selects the latest revision', async () => {
+		await handle.db.insert(fundamental).values({issuerId:entity.id,metric:'eps_basic',value:'6',currency:'EUR',source:'boerse_frankfurt',periodEnd:'2026-09-01',publishedDate:'2026-09-01',sourceRecordId:'revision2'}).onConflictDoNothing();
+		expect(await handle.db.select().from(fundamental)).toHaveLength(2);
 		expect((await buildContext(handle.db,ctx.runDate)).instruments[0].epsBasic).toBe(6);
 	});
 	it('deduplicates filing discovery and economic transactions on replay', async () => {
@@ -42,9 +45,9 @@ describe.skipIf(!url)('SEC persistence and product isolation', () => {
 		await persistFiling(ctx,filing,sample,evidence); await persistFiling(ctx,filing,sample,evidence);
 		expect(await handle.db.select().from(sourceFiling)).toHaveLength(1);
 		expect(await handle.db.select().from(insiderTransaction)).toHaveLength(1);
-		expect(await handle.db.select().from(newsItem)).toHaveLength(1);
+		expect(await handle.db.select().from(newsItem)).toHaveLength(0);
 		const context = await buildContext(handle.db,'2026-08-10'); expect(context.instruments[0].insiderTx).toHaveLength(0);
-		const detail = await issuerDetail(handle.db,'DE0000000099',ctx.runDate); expect(detail?.insiderHistory).toHaveLength(0); expect(detail?.news).toHaveLength(0);
+		const detail = await issuerDetail(handle.db,assetId,ctx.runDate); expect(detail?.insiderHistory.every((t) => !t.countedInSignal)).toBe(true); expect(detail?.news).toHaveLength(0);
 	});
 	it('preserves financial periods and revisions without leaking SEC values', async () => {
 		const acc = '0000789019-26-000150';
@@ -61,7 +64,7 @@ describe.skipIf(!url)('SEC persistence and product isolation', () => {
 		await persistFacts(ctx,entity,data,{...evidence,hash:'facts2'},'2022-01-01');
 		expect(await handle.db.select().from(fundamental).where(eq(fundamental.source,'sec'))).toHaveLength(4);
 		expect((await buildContext(handle.db,ctx.runDate)).instruments[0].epsBasic).toBe(6);
-		expect((await issuerDetail(handle.db,'DE0000000099',ctx.runDate))?.epsBasicHistory).toHaveLength(1);
+		expect((await issuerDetail(handle.db,assetId,ctx.runDate))?.epsBasicHistory).toHaveLength(1);
 	});
 	it('retains partial amendments independently and rolls back malformed filings', async () => {
 		const acc = '0000789019-26-000151';
@@ -81,6 +84,11 @@ describe.skipIf(!url)('SEC persistence and product isolation', () => {
 		await rememberFiling(ctx,{...record,items:'2.02'},entity.id);
 		const [row] = await handle.db.select().from(sourceFiling).where(eq(sourceFiling.externalId,record.accession));
 		expect(row.status).toBe('pending'); expect(row.issuerId).toBe(entity.id); expect(row.metadata.items).toBe('2.02');
+		await handle.db.update(sourceFiling).set({ status: 'unavailable', metadata: { ...row.metadata, unavailableVerification: { version: 1 } } }).where(eq(sourceFiling.id, row.id));
+		await rememberFiling(ctx, record, entity.id);
+		const [rediscovered] = await handle.db.select().from(sourceFiling).where(eq(sourceFiling.id, row.id));
+		expect(rediscovered.status).toBe('pending');
+		expect(rediscovered.metadata.unavailableVerification).toEqual({ version: 1 });
 	});
 	it('keeps partial SEC job stats and durable work while reporting failure', async () => {
 		const errorLog = vi.spyOn(console, 'error').mockImplementation(() => {});

@@ -1,16 +1,15 @@
+import type { NewsRowView } from '../../feed/types.js';
 import { and, eq, inArray } from 'drizzle-orm';
-import { sql } from 'drizzle-orm';
 import type { Db } from '../db/index.js';
 import { signal, signalDefinition } from '../db/schema.js';
-import { idList, loadLatestPrices } from '../feed/queries.js';
+import type { ResearchSnapshot } from '../assets/snapshot.js';
+import type { QualifiedDealing } from '../assets/ownership.js';
 import {
 	parseInsiderComponents,
 	parseRelativeValueComponents,
 	type InsiderComponentsView,
 	type RelativeValueComponentsView
 } from '../feed/rationale.js';
-import { METRICS } from '../fundamentals/metrics.js';
-import { INSIDER_WINDOW_DAYS } from '../signals/context.js';
 import {
 	COUNTED_INSTRUMENT_TYPE,
 	ROLE_WEIGHTS,
@@ -30,6 +29,7 @@ import { addDays } from '../util.js';
  */
 
 export interface FundamentalsSnapshot {
+	currency: string;
 	price: number | null;
 	priceDate: string | null;
 	ytdReturn: number | null;
@@ -41,75 +41,29 @@ export interface FundamentalsSnapshot {
 	dividendYield: number | null;
 }
 
-export async function loadFundamentalsSnapshots(
-	db: Db,
-	rows: { instrumentId: number; issuerId: number }[],
-	runDate: string
-): Promise<Map<number, FundamentalsSnapshot>> {
-	if (rows.length === 0) return new Map();
-	const instrumentIds = [...new Set(rows.map((r) => r.instrumentId))];
-	const issuerIds = [...new Set(rows.map((r) => r.issuerId))];
-
-	// YTD reference: last close of the prior calendar year (bounded lookback
-	// so thin listings don't produce ancient references).
-	const priorYearEnd = `${Number(runDate.slice(0, 4)) - 1}-12-31`;
-	const [latest, ytdRefs, fundamentals] = await Promise.all([
-		loadLatestPrices(db, instrumentIds, runDate),
-		db.execute(sql`
-			select distinct on (instrument_id) instrument_id, close
-			from eod_price
-			where instrument_id in (${idList(instrumentIds)})
-				and trade_date <= ${priorYearEnd}
-				and trade_date > ${addDays(priorYearEnd, -30)}
-			order by instrument_id, trade_date desc
-		`) as unknown as Promise<{ instrument_id: number; close: string }[]>,
-		db.execute(sql`
-			select distinct on (issuer_id, metric) issuer_id, metric, value
-			from fundamental
-			where eligible_for_product = true and issuer_id in (${idList(issuerIds)})
-				and published_date <= ${runDate}
-				and metric in (${METRICS.epsBasic}, ${METRICS.marketCap}, ${METRICS.dividendPerShare})
-			order by issuer_id, metric, published_date desc, period_end desc
-		`) as unknown as Promise<{ issuer_id: number; metric: string; value: string }[]>
-	]);
-	const ytdRefByInstrument = new Map(ytdRefs.map((r) => [r.instrument_id, Number(r.close)]));
-	const fundamentalByIssuer = new Map<string, number>();
-	for (const row of fundamentals) {
-		fundamentalByIssuer.set(`${row.issuer_id}:${row.metric}`, Number(row.value));
-	}
-
-	const out = new Map<number, FundamentalsSnapshot>();
-	for (const { instrumentId, issuerId } of rows) {
-		const price = latest.get(instrumentId);
-		const close = price?.close ?? null;
-		const ytdRef = ytdRefByInstrument.get(instrumentId) ?? null;
-		const eps = fundamentalByIssuer.get(`${issuerId}:${METRICS.epsBasic}`) ?? null;
-		const dps = fundamentalByIssuer.get(`${issuerId}:${METRICS.dividendPerShare}`) ?? null;
-		out.set(instrumentId, {
-			price: close,
-			priceDate: price?.tradeDate ?? null,
-			ytdReturn: close !== null && ytdRef !== null && ytdRef > 0 ? close / ytdRef - 1 : null,
-			high52w: price?.hi52 ?? null,
-			low52w: price?.lo52 ?? null,
-			marketCap: fundamentalByIssuer.get(`${issuerId}:${METRICS.marketCap}`) ?? null,
-			epsBasic: eps,
-			peTrailing: close !== null && eps !== null && eps > 0 ? close / eps : null,
-			dividendYield: close !== null && close > 0 && dps !== null ? dps / close : null
-		});
-	}
-	return out;
+export function fundamentalsView(s: ResearchSnapshot): FundamentalsSnapshot {
+	const priorYear = `${Number(s.cutoffAt.slice(0, 4)) - 1}-12-31`;
+	const adjustedClose = s.series.at(-1)?.close ?? null;
+	const base = s.series.filter((p) => p.date <= priorYear && p.date > addDays(priorYear, -10)).at(-1)?.close ?? null;
+	const range = s.series.filter((p) => p.date > addDays(s.cutoffAt.slice(0, 10), -365));
+	return { currency: s.currency, price: s.close, priceDate: s.closeDate,
+		ytdReturn: adjustedClose !== null && base !== null && base > 0 ? adjustedClose / base - 1 : null,
+		high52w: range.length ? Math.max(...range.map((p) => p.close)) : null,
+		low52w: range.length ? Math.min(...range.map((p) => p.close)) : null,
+		marketCap: s.marketCap, epsBasic: s.epsBasic,
+		peTrailing: s.close !== null && s.epsBasic !== null && s.epsBasic > 0 ? s.close / s.epsBasic : null,
+		dividendYield: s.close !== null && s.close > 0 && s.dividendPerShare !== null ? s.dividendPerShare / s.close : null };
 }
-
 /**
  * Transaction nature at the granularity the BaFin CSV export offers ("Art des
  * Geschäfts" carries only Kauf/Verkauf/Sonstiges): option exercises, RSU and
  * performance-share settlements land in `settlement_or_award`, but cannot be
  * told apart from each other.
  */
-export type DealingType = 'open_market_purchase' | 'sale' | 'settlement_or_award';
+export type DealingType = 'purchase' | 'sale' | 'settlement_or_award';
 
 const DEALING_TYPE: Record<InsiderTx['side'], DealingType> = {
-	buy: 'open_market_purchase',
+	buy: 'purchase',
 	sell: 'sale',
 	other: 'settlement_or_award'
 };
@@ -124,7 +78,13 @@ export interface InsiderDealingView {
 	instrumentType: string | null;
 	/** Whether this dealing entered the severity (share dealings with a positive amount only). */
 	countedInSignal: boolean;
-	amountEur: number | null;
+	amount: number | null;
+	currency: string | null;
+	currencyStatus: string;
+	qualificationReason: string | null;
+	source: string;
+	url: string | null;
+	owners: QualifiedDealing['owners'];
 	price: number | null;
 	transactionDate: string;
 	publishedDate: string;
@@ -132,123 +92,23 @@ export interface InsiderDealingView {
 	decayedWeightEur: number | null;
 }
 
-interface DealingRow {
-	issuer_id: number;
-	party_name: string | null;
-	party_role: InsiderTx['partyRole'];
-	side: InsiderTx['side'];
-	instrument_type: string | null;
-	amount: string | null;
-	price: string | null;
-	transaction_date: string;
-	published_date: string;
+/** The display uses exactly the qualification selected for the signal. */
+export function toDealingView(row: QualifiedDealing, runDate: string): InsiderDealingView {
+	const counted = row.qualification === 'qualified' && row.amountEur !== null && row.amountEur > 0 && row.instrumentType === COUNTED_INSTRUMENT_TYPE && ['buy', 'sell'].includes(row.side);
+	return { party: row.partyName, role: row.partyRole, roleWeight: ROLE_WEIGHTS[row.partyRole], side: row.side,
+		dealingType: DEALING_TYPE[row.side], instrumentType: row.instrumentType, countedInSignal: counted,
+		amount: row.amount, currency: row.currency, currencyStatus: row.currencyStatus, qualificationReason: row.qualificationReason,
+		source: row.source, url: row.url, owners: row.owners, price: row.price, transactionDate: row.transactionDate,
+		publishedDate: row.publishedDate, decayedWeightEur: counted && row.side === 'buy' ? row.amountEur! * ROLE_WEIGHTS[row.partyRole] * publicationDecay(row.publishedDate, runDate) : null };
 }
-
-/** Pure mapper so tests can exercise the classification without a database. */
-export function toDealingView(row: DealingRow, runDate: string): InsiderDealingView {
-	const amount = row.amount === null ? null : Number(row.amount);
-	const counted =
-		row.instrument_type === COUNTED_INSTRUMENT_TYPE &&
-		(row.side === 'buy' || row.side === 'sell') &&
-		amount !== null &&
-		amount > 0;
-	return {
-		party: row.party_name,
-		role: row.party_role,
-		roleWeight: ROLE_WEIGHTS[row.party_role],
-		side: row.side,
-		dealingType: DEALING_TYPE[row.side],
-		instrumentType: row.instrument_type,
-		countedInSignal: counted,
-		amountEur: amount,
-		price: row.price === null ? null : Number(row.price),
-		transactionDate: row.transaction_date,
-		publishedDate: row.published_date,
-		decayedWeightEur:
-			counted && row.side === 'buy'
-				? (amount as number) *
-					ROLE_WEIGHTS[row.party_role] *
-					publicationDecay(row.published_date, runDate)
-				: null
-	};
-}
-
-/** All dealings in the signal's window per issuer (any side), newest first. */
-export async function loadInsiderDetails(
-	db: Db,
-	issuerIds: number[],
-	runDate: string
-): Promise<Map<number, InsiderDealingView[]>> {
-	if (issuerIds.length === 0) return new Map();
-	const windowStart = addDays(runDate, -INSIDER_WINDOW_DAYS);
-	const rows = (await db.execute(sql`
-		select issuer_id, party_name, party_role, side, instrument_type,
-			amount, price, transaction_date, published_date
-		from insider_transaction
-		where eligible_for_product = true and issuer_id in (${idList(issuerIds)})
-			and transaction_date > ${windowStart} and transaction_date <= ${runDate}
-			and published_date <= ${runDate}
-		order by issuer_id, transaction_date desc, published_date desc
-	`)) as unknown as DealingRow[];
-
-	const byIssuer = new Map<number, InsiderDealingView[]>();
-	for (const row of rows) {
-		const list = byIssuer.get(row.issuer_id) ?? [];
-		list.push(toDealingView(row, runDate));
-		byIssuer.set(row.issuer_id, list);
-	}
-	return byIssuer;
-}
-
 export interface NewsSummaryView {
 	/** News items in the signal window (last 30 days up to the run date). */
 	windowCount: number;
-	latest: { headline: string; publishedAt: string }[];
-}
-
-const NEWS_HEADLINE_LIMIT = 3;
-
-/** Windowed news count plus the most recent headlines per issuer. */
-export async function loadNewsSummaries(
-	db: Db,
-	issuerIds: number[],
-	runDate: string
-): Promise<Map<number, NewsSummaryView>> {
-	if (issuerIds.length === 0) return new Map();
-	const windowStart = addDays(runDate, -INSIDER_WINDOW_DAYS);
-	const rows = (await db.execute(sql`
-		select issuer_id, headline, published_at, window_count
-		from (
-			select issuer_id, headline, published_at,
-				row_number() over (partition by issuer_id order by published_at desc, id desc) as rn,
-				count(*) over (partition by issuer_id) as window_count
-			from news_item
-			where eligible_for_product = true and issuer_id in (${idList(issuerIds)})
-				and published_date > ${windowStart} and published_date <= ${runDate}
-		) ranked
-		where rn <= ${NEWS_HEADLINE_LIMIT}
-		order by issuer_id, published_at desc
-	`)) as unknown as {
-		issuer_id: number;
-		headline: string;
-		published_at: string | Date;
-		window_count: string | number;
-	}[];
-
-	const byIssuer = new Map<number, NewsSummaryView>();
-	for (const row of rows) {
-		const summary = byIssuer.get(row.issuer_id) ?? { windowCount: Number(row.window_count), latest: [] };
-		summary.latest.push({
-			headline: row.headline,
-			publishedAt: new Date(row.published_at).toISOString()
-		});
-		byIssuer.set(row.issuer_id, summary);
-	}
-	return byIssuer;
+	latest: NewsRowView[];
 }
 
 export interface SectorConcentration {
-	/** Coarse sector bucket (signals/sectors.ts); null when the BF sector doesn't match any bucket. */
+	/** Coarse sector bucket (signals/sectors.ts); null when the source classification is unmapped. */
 	superSector: string | null;
 	/** Other issuers in the same bucket passing the same signal in this run; null without a bucket. */
 	peersFiring: number | null;
@@ -257,16 +117,16 @@ export interface SectorConcentration {
 /**
  * Sector concentration over the run's FULL passer set (before ignore-list
  * filtering and truncation — how crowded a sector is, is a market fact, not a
- * per-account view). Keyed by ISIN.
+ * per-account view). Keyed by asset ID.
  */
 export function sectorConcentration(
-	passers: { isin: string; issuerId: number; sector: string | null }[]
+	passers: { assetId: string; issuerId: number; sector: string | null }[]
 ): Map<string, SectorConcentration> {
 	const issuersByBucket = new Map<string, Set<number>>();
-	const bucketByIsin = new Map<string, string | null>();
+	const bucketByAssetId = new Map<string, string | null>();
 	for (const row of passers) {
 		const bucket = superSector(row.sector);
-		bucketByIsin.set(row.isin, bucket);
+		bucketByAssetId.set(row.assetId, bucket);
 		if (bucket === null) continue;
 		const set = issuersByBucket.get(bucket) ?? new Set<number>();
 		set.add(row.issuerId);
@@ -274,8 +134,8 @@ export function sectorConcentration(
 	}
 	const out = new Map<string, SectorConcentration>();
 	for (const row of passers) {
-		const bucket = bucketByIsin.get(row.isin) ?? null;
-		out.set(row.isin, {
+		const bucket = bucketByAssetId.get(row.assetId) ?? null;
+		out.set(row.assetId, {
 			superSector: bucket,
 			peersFiring: bucket === null ? null : (issuersByBucket.get(bucket)?.size ?? 1) - 1
 		});

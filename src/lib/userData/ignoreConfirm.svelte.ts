@@ -11,11 +11,11 @@
 
 import type { CardData } from '$lib/feed/types';
 
-export type IgnoreCandidate = Pick<CardData, 'isin' | 'name'>;
+export type IgnoreCandidate = Pick<CardData, 'assetId' | 'name'>;
 
 /** Structural slices of the real stores, so tests can stub them. */
 interface WatchlistLike {
-	remove(isin: string): void;
+	remove(assetId: string): void;
 }
 
 interface IgnoredLike {
@@ -36,7 +36,7 @@ export class IgnoreConfirmController {
 
 	/** Opens the confirmation dialog for an asset. */
 	request(card: IgnoreCandidate): void {
-		this.pending = { isin: card.isin, name: card.name };
+		this.pending = { assetId: card.assetId, name: card.name };
 	}
 
 	confirm(): void {
@@ -44,7 +44,7 @@ export class IgnoreConfirmController {
 		if (card === null) return;
 		// remove() is a no-op while the watchlist is locked; the layout's
 		// reconciliation effect finishes the job after the next unlock.
-		this.watchlist.remove(card.isin);
+		this.watchlist.remove(card.assetId);
 		this.ignored.add(card);
 		this.pending = null;
 	}

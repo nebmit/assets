@@ -3,6 +3,8 @@ import { z } from 'zod';
 // Pipeline code must stay free of SvelteKit-only imports ($env/*) so the
 // worker can run as a standalone bundle; all configuration enters here.
 const envSchema = z.object({
+	APCA_API_KEY_ID: z.string().optional(),
+	APCA_API_SECRET_KEY: z.string().optional(),
 	DATABASE_URL: z.string().url().default('postgres://assets:assets@localhost:5432/assets'),
 	RAW_DATA_DIR: z.string().default('./data/raw'),
 	/** Days of raw archives to keep; unset keeps everything forever. */

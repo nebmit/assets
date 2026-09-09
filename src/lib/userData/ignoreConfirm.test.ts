@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { IgnoreConfirmController, type IgnoreCandidate } from './ignoreConfirm.svelte';
 
-const CARD: IgnoreCandidate = { isin: 'DE0007164600', name: 'SAP' };
+const CARD: IgnoreCandidate = { assetId: 'DE0007164600', name: 'SAP' };
 
 function makeStubs() {
 	const calls = { removed: [] as string[], added: [] as IgnoreCandidate[] };
-	const watchlist = { remove: (isin: string) => void calls.removed.push(isin) };
+	const watchlist = { remove: (assetId: string) => void calls.removed.push(assetId) };
 	const ignored = { add: (card: IgnoreCandidate) => void calls.added.push(card) };
 	return { watchlist, ignored, calls };
 }
@@ -23,7 +23,7 @@ describe('IgnoreConfirmController', () => {
 		const controller = new IgnoreConfirmController(watchlist, ignored);
 		controller.request(CARD);
 		controller.confirm();
-		expect(calls.removed).toEqual([CARD.isin]);
+		expect(calls.removed).toEqual([CARD.assetId]);
 		expect(calls.added).toEqual([CARD]);
 		expect(controller.pending).toBeNull();
 	});

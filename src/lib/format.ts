@@ -7,11 +7,11 @@
 const DAY_MS = 86_400_000;
 
 /**
- * Compact EUR amount for dense rows: "1.24M", "820k", "2.10B", "999".
+ * Compact number for dense rows: "1.24M", "820k", "2.10B", "999".
  * Two decimals for millions and above (matches the design's insider rows),
  * whole thousands for "k".
  */
-export function formatCompactEur(value: number): string {
+export function formatCompactNumber(value: number): string {
 	const abs = Math.abs(value);
 	const sign = value < 0 ? '−' : '';
 	if (abs >= 1e9) return `${sign}${(abs / 1e9).toFixed(2)}B`;
@@ -68,5 +68,5 @@ export function ageOpacity(dateIso: string, asOfIso: string): number {
 
 /** The feed header's as-of line. We only ingest EOD data — no intraday time. */
 export function formatAsOf(dateIso: string): string {
-	return `As of ${formatDayMonthYear(dateIso)} · EOD close · Börse Frankfurt`;
+	return `As of ${formatDayMonthYear(dateIso)} · Daily closes`;
 }

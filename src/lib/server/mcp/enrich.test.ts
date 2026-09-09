@@ -5,15 +5,11 @@ const RUN_DATE = '2026-07-01';
 
 function makeRow(overrides: Partial<Parameters<typeof toDealingView>[0]>) {
 	return {
-		issuer_id: 1,
-		party_name: 'Armin Example',
-		party_role: 'executive_board' as const,
-		side: 'buy' as const,
-		instrument_type: 'Aktie',
-		amount: '100000',
-		price: '81.70',
-		transaction_date: '2026-06-30',
-		published_date: RUN_DATE,
+		fxRateEvidence: null, id: 1, economicKey: 'test', owners: [], price: 81.7, source: 'bafin', currencyStatus: 'explicit' as const,
+		qualification: 'qualified', qualificationReason: null, url: null, filingId: null,
+		partyName: 'Armin Example', partyRole: 'executive' as const, side: 'buy' as const,
+		instrumentType: 'common_share', amount: 100_000, amountEur: overrides.amount === undefined ? 100_000 : overrides.amount,
+		currency: 'EUR', buyerKey: 'Armin', transactionDate: '2026-06-30', publishedDate: RUN_DATE,
 		...overrides
 	};
 }
@@ -23,11 +19,11 @@ describe('toDealingView', () => {
 		const view = toDealingView(makeRow({}), RUN_DATE);
 		expect(view).toMatchObject({
 			party: 'Armin Example',
-			role: 'executive_board',
+			role: 'executive',
 			roleWeight: 1,
-			dealingType: 'open_market_purchase',
+			dealingType: 'purchase',
 			countedInSignal: true,
-			amountEur: 100_000,
+			amount: 100_000,
 			price: 81.7
 		});
 		// published on the run date: no decay, executive weight 1.0
@@ -36,7 +32,7 @@ describe('toDealingView', () => {
 
 	it('decays and role-weights the credited amount', () => {
 		const view = toDealingView(
-			makeRow({ party_role: 'related_party', published_date: '2026-06-10' }), // 21d old
+			makeRow({ partyRole: 'related_party', publishedDate: '2026-06-10' }), // 21d old
 			RUN_DATE
 		);
 		expect(view.roleWeight).toBe(0.6);
@@ -58,10 +54,10 @@ describe('toDealingView', () => {
 	});
 
 	it('excludes non-share instruments and missing amounts from the signal', () => {
-		expect(toDealingView(makeRow({ instrument_type: 'Schuldverschreibung' }), RUN_DATE).countedInSignal).toBe(false);
+		expect(toDealingView(makeRow({ instrumentType: 'Schuldverschreibung' }), RUN_DATE).countedInSignal).toBe(false);
 		expect(toDealingView(makeRow({ amount: null }), RUN_DATE)).toMatchObject({
 			countedInSignal: false,
-			amountEur: null,
+			amount: null,
 			decayedWeightEur: null
 		});
 	});
@@ -70,10 +66,10 @@ describe('toDealingView', () => {
 describe('sectorConcentration', () => {
 	it('counts same-bucket peers, excluding the row itself', () => {
 		const passers = [
-			{ isin: 'DE1', issuerId: 1, sector: 'Automobile Production' },
-			{ isin: 'DE2', issuerId: 2, sector: 'Machinery' },
-			{ isin: 'DE3', issuerId: 3, sector: 'Aerospace & Defence' },
-			{ isin: 'DE4', issuerId: 4, sector: 'Banking' }
+			{ assetId: 'DE1', issuerId: 1, sector: 'Automobile Production' },
+			{ assetId: 'DE2', issuerId: 2, sector: 'Machinery' },
+			{ assetId: 'DE3', issuerId: 3, sector: 'Aerospace & Defence' },
+			{ assetId: 'DE4', issuerId: 4, sector: 'Banking' }
 		];
 		const out = sectorConcentration(passers);
 		// autos + machinery + defence all land in Industrials
@@ -83,9 +79,9 @@ describe('sectorConcentration', () => {
 
 	it('returns null for unclassified sectors and counts issuers, not listings', () => {
 		const passers = [
-			{ isin: 'DE1', issuerId: 1, sector: 'Automobile Production' },
-			{ isin: 'DE2', issuerId: 1, sector: 'Automobile Production' }, // second listing, same issuer
-			{ isin: 'DE3', issuerId: 3, sector: null }
+			{ assetId: 'DE1', issuerId: 1, sector: 'Automobile Production' },
+			{ assetId: 'DE2', issuerId: 1, sector: 'Automobile Production' }, // second listing, same issuer
+			{ assetId: 'DE3', issuerId: 3, sector: null }
 		];
 		const out = sectorConcentration(passers);
 		expect(out.get('DE1')?.peersFiring).toBe(0);

@@ -1,5 +1,5 @@
-import { eq, isNull } from 'drizzle-orm';
-import { indexMembership, instrument, newsItem } from '../../db/schema.js';
+import { bfMembers } from '../../assets/listings.js';
+import { newsItem } from '../../db/schema.js';
 import type { Job, JobContext, JobStats } from '../../pipeline/types.js';
 import { isoDate, md5 } from '../../util.js';
 import { bfRequest, BF_SOURCE, BfUnavailableError } from './client.js';
@@ -94,11 +94,7 @@ async function fetchInstrumentNews(isin: string) {
 }
 
 async function currentMembers(ctx: JobContext): Promise<NewsMember[]> {
-	return ctx.db
-		.selectDistinct({ id: instrument.id, issuerId: instrument.issuerId, isin: instrument.isin })
-		.from(instrument)
-		.innerJoin(indexMembership, eq(indexMembership.instrumentId, instrument.id))
-		.where(isNull(indexMembership.validTo));
+	return bfMembers(ctx.db);
 }
 
 /**
@@ -125,7 +121,7 @@ export const newsJob: Job = {
 				if (mapped.rows.length === 0) continue;
 				const result = await ctx.db
 					.insert(newsItem)
-					.values(mapped.rows)
+					.values(mapped.rows.map((r) => ({ ...r, observedAt: new Date() })))
 					.onConflictDoNothing({ target: newsItem.naturalKeyHash })
 					.returning({ id: newsItem.id });
 				inserted += result.length;

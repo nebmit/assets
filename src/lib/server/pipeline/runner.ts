@@ -22,12 +22,13 @@ export async function runJob(db: Db, job: Job, runDate: string, options: JobOpti
 	try {
 		const before = job.source === 'sec' ? { ...(await import('../sources/sec/client.js')).transportStats } : null;
 		const started = Date.now();
-		const stats = await job.run({ db, runDate, log, ...options });
+		const context = { db, runDate, log, ...options };
+		const stats = await job.run(context);
 		if (before) {
 			const after = (await import('../sources/sec/client.js')).transportStats;
 			Object.assign(stats, { requests: after.requests - before.requests, bytes: after.bytes - before.bytes, elapsed_ms: Date.now() - started });
 		}
-		if (job.source === 'sec' && (Number(stats.failed ?? 0) > 0 || Number(stats.refresh_missing ?? 0) > 0)) {
+		if (job.source === 'sec' && (Number(stats.failed ?? 0) > 0 || Number(stats.refresh_missing ?? 0) > 0 || Number(stats.deferred ?? 0) > 0 || Number(stats.pending ?? 0) > 0 || Number(stats.submissions_deferred ?? 0) > 0)) {
 			const error = 'SEC job has incomplete work; inspect stats and filing errors, then rerun';
 			await db.update(ingestionRun).set({ status: 'error', finishedAt: new Date(), stats, error }).where(eq(ingestionRun.id, row.id));
 			console.error(`[${job.name}] INCOMPLETE: ${error}; ${JSON.stringify(stats, (key, value) => key === 'selection_ciks' ? undefined : value)}`);
@@ -56,16 +57,28 @@ export async function runJob(db: Db, job: Job, runDate: string, options: JobOpti
  */
 export async function runJobs(db: Db, jobs: Job[], runDate: string, options: JobOptions = {}): Promise<JobRunResult[]> {
 	const results: JobRunResult[] = [];
+	let secIncomplete = false;
 	for (let i = 0; i < jobs.length; i++) {
 		const job = jobs[i];
 		if (job.source !== 'sec') {
+			if (secIncomplete && ['signals', 'performance'].includes(job.name)) {
+				const error = 'skipped because SEC ingestion is incomplete; retain the previous dashboard snapshot';
+				console.error(`[${job.name}] ${error}`);
+				results.push({ job: job.name, ok: false, error });
+				continue;
+			}
 			results.push(await runJob(db, job, runDate));
 			continue;
 		}
 		const group: Job[] = [job];
 		while (jobs[i + 1]?.source === 'sec') group.push(jobs[++i]);
-		try { results.push(...await runSecJobs(db, group, runDate, options)); }
+		try {
+			const completed = await runSecJobs(db, group, runDate, options);
+			secIncomplete ||= completed.some((result) => !result.ok);
+			results.push(...completed);
+		}
 		catch (error) {
+			secIncomplete = true;
 			const message = error instanceof Error ? error.message : String(error);
 			console.error(`SEC ingestion failed: ${message}`);
 			results.push(...group.map((job) => ({ job: job.name, ok: false, error: message })));
@@ -76,7 +89,7 @@ export async function runJobs(db: Db, jobs: Job[], runDate: string, options: Job
 
 /** SEC jobs commit independently while a dedicated connection owns the process lock. */
 async function runSecJobs(db: Db, jobs: Job[], runDate: string, options: JobOptions): Promise<JobRunResult[]> {
-	if (!options.cik && !options.issuerSelection) options = { issuerSelection: parseSelection() };
+	if (!options.cik && !options.issuerSelection) options = { ...options, issuerSelection: parseSelection() };
 	const { default: postgres } = await import('postgres');
 	const { config } = await import('../config.js');
 	const lock = postgres(config().DATABASE_URL, { max: 1 });

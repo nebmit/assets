@@ -13,7 +13,7 @@ import type { LayoutServerLoad } from './$types.js';
 async function loadIgnoredAssets(userUuid: string): Promise<ListEntry[] | null> {
 	try {
 		const entries = await listIgnoredAssets(getDb(), userUuid);
-		return entries.map((e) => ({ isin: e.isin, name: e.name, addedAt: e.addedAt.toISOString() }));
+		return entries.map((e) => ({ assetId: e.assetId, name: e.name, addedAt: e.addedAt.toISOString() }));
 	} catch (error) {
 		console.error('ignored assets load failed', error);
 		return null;

@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Db } from '../db/index.js';
 import type { Job, JobContext } from './types.js';
-import { runJobs } from './runner.js';
+import { runJob, runJobs } from './runner.js';
 
 const lock = vi.hoisted(() => {
 	const query = Object.assign(vi.fn(), { end: vi.fn() });
@@ -37,6 +37,42 @@ describe('combined pipeline execution', () => {
 		expect(dependent).not.toHaveBeenCalled();
 		expect(other).toHaveBeenCalledOnce();
 		expect(lock.query.end).toHaveBeenCalledOnce();
+	});
+	it.each(['source_failure', 'incomplete_queue'])('retains the published snapshot after SEC %s while other sources finish', async (failure) => {
+		vi.spyOn(console, 'error').mockImplementation(() => {});
+		const other = vi.fn(async () => ({})), signals = vi.fn(async () => ({})), performance = vi.fn(async () => ({}));
+		const results = await runJobs(db, [job('sec_universe', async () => {
+			if (failure === 'source_failure') throw new Error('Invalid equity holding ticker');
+			return { failed: 1, pending: 2 };
+		}), job('alpaca_prices', other, 'alpaca'), job('signals', signals, 'internal'), job('performance', performance, 'internal')], '2026-09-09');
+		expect(results.map((r) => r.ok)).toEqual([false, true, false, false]);
+		expect(other).toHaveBeenCalledOnce();
+		expect(signals).not.toHaveBeenCalled(); expect(performance).not.toHaveBeenCalled();
+		expect(results[2].error).toContain('retain the previous dashboard snapshot');
+	});
+	it('waits for long-running work instead of publishing a budget-truncated stage', async () => {
+		const next = vi.fn(async () => ({}));
+		const result = await runJobs(db, [job('sec_filings', async () => {
+			vi.spyOn(Date, 'now').mockReturnValue(Date.now() + 3600000);
+			return { processed: 10000, deferred: 0 };
+		}), job('sec_fundamentals', next)], '2026-09-06');
+		expect(result.every((r) => r.ok)).toBe(true);
+		expect(next).toHaveBeenCalledOnce();
+	});
+	it('does not hide a source failure', async () => {
+		vi.spyOn(console, 'error').mockImplementation(() => {});
+		const result = await runJob(db, job('sec_universe', async () => { throw new Error('invalid source snapshot'); }), '2026-09-06');
+		expect(result).toMatchObject({ ok: false, error: expect.stringContaining('invalid source snapshot') });
+	});
+	it.each([
+		[{ refreshed: 399, refresh_missing: 0, deferred: 498 }, false],
+		[{ refreshed: 399, refresh_missing: 498, deferred: 0 }, false],
+		[{ failed: 2, deferred: 498 }, false]
+	])('reports remaining work and filing failures as incomplete', async (stats, ok) => {
+		vi.spyOn(console, 'error').mockImplementation(() => {});
+		const result = await runJob(db, job('sec_universe', async () => stats), '2026-09-06');
+		expect(result.ok).toBe(ok);
+		expect(result.stats).toMatchObject(stats);
 	});
 	it('isolates SEC lock contention from other sources', async () => {
 		vi.spyOn(console, 'error').mockImplementation(() => {});

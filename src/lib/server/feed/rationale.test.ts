@@ -90,3 +90,72 @@ describe('parseRelativeValueComponents', () => {
 		expect(parseRelativeValueComponents({ peer_group: 42 }).peerGroup).toBeNull();
 	});
 });
+
+import { parseHeadline, parseMarketCap, parseReasons, parseRelativeValueRationale } from './rationale.js';
+
+describe('parseRelativeValueRationale', () => {
+	it('reads the engine shape', () => {
+		expect(
+			parseRelativeValueRationale({
+				close: 245.8,
+				close_date: '2026-07-01',
+				eps_basic: 5.84,
+				pe: 42.1,
+				price_book: 5.2,
+				peer_group: 'Software',
+				peer_median_pe: 28.4
+			})
+		).toEqual({ close: 245.8, eps: 5.84, pe: 42.1, pb: 5.2, peerMedianPe: 28.4 });
+	});
+
+	it('degrades malformed or partial rationale to nulls, never throws', () => {
+		expect(parseRelativeValueRationale(null)).toEqual({
+			close: null,
+			eps: null,
+			pe: null,
+			pb: null,
+			peerMedianPe: null
+		});
+		expect(parseRelativeValueRationale({ pe: 'not a number', close: 12 })).toEqual({
+			close: 12,
+			eps: null,
+			pe: null,
+			pb: null,
+			peerMedianPe: null
+		});
+		expect(parseRelativeValueRationale('garbage')).toEqual({
+			close: null,
+			eps: null,
+			pe: null,
+			pb: null,
+			peerMedianPe: null
+		});
+	});
+});
+
+describe('parseMarketCap', () => {
+	it('reads market_cap and tolerates junk', () => {
+		expect(parseMarketCap({ market_cap: 2.9e11, buy_value_eur: 5 })).toBe(2.9e11);
+		expect(parseMarketCap({ market_cap: 'n/a' })).toBeNull();
+		expect(parseMarketCap(undefined)).toBeNull();
+	});
+});
+
+describe('parseReasons / parseHeadline', () => {
+	it('reads the surfaced-feed reasons list', () => {
+		expect(
+			parseReasons({
+				reasons: [{ signal: 'relative_value', severity: 0.3, headline: 'P/E 6.1, 40% below Financials median' }],
+				event_date: null
+			})
+		).toEqual([{ signal: 'relative_value', severity: 0.3, headline: 'P/E 6.1, 40% below Financials median' }]);
+	});
+
+	it('degrades malformed reasons and headlines instead of throwing', () => {
+		expect(parseReasons({ reasons: 'garbage' })).toEqual([]);
+		expect(parseReasons(null)).toEqual([]);
+		expect(parseHeadline({ headline: '1 insider bought €400k in 30d' })).toBe('1 insider bought €400k in 30d');
+		expect(parseHeadline({ headline: 42 })).toBe('');
+		expect(parseHeadline(undefined)).toBe('');
+	});
+});

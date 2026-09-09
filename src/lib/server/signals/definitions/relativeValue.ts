@@ -36,6 +36,7 @@ function validPe(instrument: UniverseInstrument, runDate: string): number | null
 }
 
 interface PeerMedians {
+	representatives: UniverseInstrument[];
 	peByInstrument: Map<number, number>;
 	bySuperSector: Map<string, { median: number; count: number }>;
 	byIndex: Map<string, { median: number; count: number }>;
@@ -50,21 +51,26 @@ function peerMedians(ctx: UniverseContext): PeerMedians {
 	const peByInstrument = new Map<number, number>();
 	const sectorPes = new Map<string, number[]>();
 	const indexPes = new Map<string, number[]>();
+	const represented = new Set<number>();
+	const representatives: UniverseInstrument[] = [];
 	const append = (map: Map<string, number[]>, key: string, pe: number) => {
 		const list = map.get(key);
 		if (list) list.push(pe);
 		else map.set(key, [pe]);
 	};
-	for (const instrument of ctx.instruments) {
+	for (const instrument of [...ctx.instruments].sort((a, b) => a.instrumentId - b.instrumentId)) {
 		const pe = validPe(instrument, ctx.runDate);
 		if (pe === null) continue;
 		peByInstrument.set(instrument.instrumentId, pe);
+		if (represented.has(instrument.issuerId)) continue;
+		represented.add(instrument.issuerId);
+		representatives.push(instrument);
 		const bucket = superSector(instrument.sector);
 		if (bucket !== null) append(sectorPes, bucket, pe);
-		append(indexPes, instrument.indexName, pe);
+		append(indexPes, instrument.sizeBand, pe);
 	}
 	cached = {
-		peByInstrument,
+		representatives, peByInstrument,
 		bySuperSector: new Map(
 			[...sectorPes].map(([k, v]) => [k, { median: median(v) as number, count: v.length }])
 		),
@@ -87,7 +93,7 @@ export const relativeValueSignal: SignalDefinition = {
 	role: 'discovery',
 	slug: 'relative_value',
 	name: 'Relative Value',
-	version: 3,
+	version: 5,
 	params: {
 		max_pe: MAX_PE,
 		min_sector_peers: MIN_SECTOR_PEERS,
@@ -115,21 +121,21 @@ export const relativeValueSignal: SignalDefinition = {
 			dividend_yield: dividendYield,
 			return_6m: instrument.return6m
 		};
-		if (pe === null) {
-			return { passedGate: false, score: null, rationale };
-		}
 
 		const bucket = superSector(instrument.sector);
 		const sectorPeers = bucket === null ? undefined : medians.bySuperSector.get(bucket);
 		const peers =
 			sectorPeers !== undefined && sectorPeers.count >= MIN_SECTOR_PEERS
 				? { group: `sector:${bucket}`, ...sectorPeers }
-				: { group: `index:${instrument.indexName}`, ...(medians.byIndex.get(instrument.indexName) as { median: number; count: number }) };
+				: { group: `size:${instrument.sizeBand}`, ...(medians.byIndex.get(instrument.sizeBand) as { median: number; count: number }) };
 
-		const discount = (peers.median - pe) / peers.median;
+		if (peers.median === undefined || peers.count === undefined) return { passedGate: false, score: null, rationale };
 		rationale.peer_group = peers.group;
+		rationale.peer_inputs = medians.representatives.filter((p) => peers.group.startsWith('sector:') ? superSector(p.sector) === bucket : p.sizeBand === instrument.sizeBand).map((p) => ({ asset_id: p.assetId, issuer_id: p.issuerId, pe: medians.peByInstrument.get(p.instrumentId) }));
 		rationale.peer_count = peers.count;
 		rationale.peer_median_pe = peers.median;
+		if (pe === null) return { passedGate: false, score: null, rationale };
+		const discount = (peers.median - pe) / peers.median;
 		rationale.discount_to_peer_median = discount;
 
 		if (discount < MIN_DISCOUNT) {
@@ -145,7 +151,7 @@ export const relativeValueSignal: SignalDefinition = {
 		const yieldBonus = clamp01((dividendYield ?? 0) / YIELD_SATURATION);
 		const severity = Math.min(1, (1 - YIELD_WEIGHT) * depth + YIELD_WEIGHT * yieldBonus);
 
-		rationale.headline = `P/E ${formatRatio(pe)}, ${Math.round(discount * 100)}% below ${peers.group.replace('sector:', '').replace('index:', '')} median`;
+		rationale.headline = `P/E ${formatRatio(pe)}, ${Math.round(discount * 100)}% below ${peers.group.replace('sector:', '').replace('size:', '')} median`;
 		return { passedGate: true, score: severity, eventDate: null, rationale };
 	}
 };

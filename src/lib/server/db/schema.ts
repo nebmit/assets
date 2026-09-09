@@ -12,13 +12,20 @@ import {
 	pgTable,
 	primaryKey,
 	serial,
+	uuid,
 	text,
 	timestamp,
 	uniqueIndex,
 	index
 } from 'drizzle-orm/pg-core';
 
-export const marketIndexEnum = pgEnum('market_index', ['DAX', 'MDAX', 'SDAX']);
+export const universe = pgTable('universe', {
+	id: text('id').primaryKey(),
+	name: text('name').notNull(),
+	sizeBand: text('size_band').$type<'large' | 'mid' | 'small'>().notNull(),
+	source: text('source').notNull(),
+	basis: text('basis').notNull()
+});
 // 'other' covers BaFin's "Sonstiges" (share awards, option exercises, …)
 export const sideEnum = pgEnum('transaction_side', ['buy', 'sell', 'other']);
 export const partyRoleEnum = pgEnum('party_role', [
@@ -76,18 +83,43 @@ export const instrument = pgTable(
 		issuerId: integer('issuer_id')
 			.notNull()
 			.references(() => issuer.id),
-		isin: text('isin').notNull().unique(),
+		assetId: uuid('asset_id').notNull().defaultRandom().unique(),
+		isin: text('isin').unique(),
+		securityClass: text('security_class'),
+		shortDisclosureSource: text('short_disclosure_source'),
 		wkn: text('wkn'),
-		ticker: text('ticker'),
-		market: text('market').notNull().default('XETR'),
-		currency: text('currency'),
-		/** Earliest date successfully requested from the XETR price-history endpoint. */
-		priceHistoryCoveredFrom: date('price_history_covered_from'),
 		firstSeen: date('first_seen').notNull(),
 		lastSeen: date('last_seen').notNull()
 	},
 	(t) => [index('instrument_issuer_idx').on(t.issuerId)]
 );
+
+/** A dated exchange listing; symbols are never permanent security identities. */
+export const listing = pgTable('listing', {
+	id: serial('id').primaryKey(),
+	instrumentId: integer('instrument_id').notNull().references(() => instrument.id),
+	mic: text('mic').notNull(),
+	symbol: text('symbol'),
+	currency: text('currency').notNull(),
+	source: text('source').notNull(),
+	validFrom: date('valid_from').notNull(),
+	validTo: date('valid_to'),
+	isPrimary: boolean('is_primary').notNull().default(true),
+	priceHistoryCoveredFrom: date('price_history_covered_from'),
+	metadata: jsonb('metadata').$type<Record<string, unknown>>().notNull().default({})
+}, (t) => [index('listing_instrument_idx').on(t.instrumentId),
+	uniqueIndex('listing_primary_idx').on(t.instrumentId).where(sql`${t.isPrimary} and ${t.validTo} is null`),
+	uniqueIndex('listing_symbol_idx').on(t.source, t.mic, t.symbol).where(sql`${t.validTo} is null`)]);
+
+export const providerIdentifier = pgTable('provider_identifier', {
+	id: serial('id').primaryKey(),
+	instrumentId: integer('instrument_id').notNull().references(() => instrument.id),
+	source: text('source').notNull(),
+	externalId: text('external_id').notNull(),
+	validFrom: date('valid_from').notNull(),
+	validTo: date('valid_to'),
+	evidence: jsonb('evidence').$type<Record<string, unknown>>()
+}, (t) => [uniqueIndex('provider_identifier_active_idx').on(t.source, t.externalId).where(sql`${t.validTo} is null`)]);
 
 /** Interval-form index constituency, maintained by daily diff (point-in-time queryable). */
 export const indexMembership = pgTable(
@@ -97,36 +129,54 @@ export const indexMembership = pgTable(
 		instrumentId: integer('instrument_id')
 			.notNull()
 			.references(() => instrument.id),
-		indexName: marketIndexEnum('index_name').notNull(),
+		indexName: text('index_name').notNull().references(() => universe.id),
+		snapshotDate: date('snapshot_date'),
+		observedAt: timestamp('observed_at', { withTimezone: true }),
+		evidence: jsonb('evidence').$type<Record<string, unknown>>(),
 		validFrom: date('valid_from').notNull(),
 		validTo: date('valid_to')
 	},
 	(t) => [index('index_membership_instrument_idx').on(t.instrumentId, t.indexName)]
 );
 
-export const eodPrice = pgTable(
-	'eod_price',
-	{
-		instrumentId: integer('instrument_id')
-			.notNull()
-			.references(() => instrument.id),
-		tradeDate: date('trade_date').notNull(),
-		open: numeric('open'),
-		high: numeric('high'),
-		low: numeric('low'),
-		close: numeric('close').notNull(),
-		volume: bigint('volume', { mode: 'number' }),
-		currency: text('currency'),
-		source: text('source').notNull().default('boerse_frankfurt')
-	},
-	(t) => [
-		primaryKey({ columns: [t.instrumentId, t.tradeDate] }),
-		// The signal engine scans date windows across all instruments
-		// (context.ts, performance.ts); the PK leads with instrument_id and
-		// can't serve those.
-		index('eod_price_trade_date_idx').on(t.tradeDate)
-	]
-);
+/** Versioned raw prices. Corrections never rewrite evidence used by a run. */
+export const eodPrice = pgTable('eod_price', {
+	id: serial('id').primaryKey(),
+	listingId: integer('listing_id').notNull().references(() => listing.id),
+	tradeDate: date('trade_date').notNull(),
+	open: numeric('open'), high: numeric('high'), low: numeric('low'),
+	close: numeric('close').notNull(),
+	volume: bigint('volume', { mode: 'number' }),
+	currency: text('currency').notNull(),
+	source: text('source').notNull(),
+	feed: text('feed').notNull(),
+	adjustment: text('adjustment').notNull().default('raw'),
+	sourceRecordId: text('source_record_id').notNull().unique(),
+	observedAt: timestamp('observed_at', { withTimezone: true }),
+	evidence: jsonb('evidence').$type<Record<string, unknown>>()
+}, (t) => [index('eod_price_listing_date_idx').on(t.listingId, t.tradeDate), index('eod_price_trade_date_idx').on(t.tradeDate)]);
+
+export const corporateAction = pgTable('corporate_action', {
+	id: serial('id').primaryKey(),
+	instrumentId: integer('instrument_id').notNull().references(() => instrument.id),
+	source: text('source').notNull(),
+	externalId: text('external_id').notNull(),
+	type: text('type').notNull(),
+	exDate: date('ex_date').notNull(),
+	ratio: numeric('ratio'), amount: numeric('amount'), currency: text('currency'),
+	observedAt: timestamp('observed_at', { withTimezone: true }).notNull(),
+	sourceRecordId: text('source_record_id').notNull().unique(),
+	evidence: jsonb('evidence').$type<Record<string, unknown>>().notNull(),
+	qualification: text('qualification').notNull(),
+	metadata: jsonb('metadata').$type<Record<string, unknown>>().notNull().default({})
+}, (t) => [index('corporate_action_instrument_idx').on(t.instrumentId, t.exDate)]);
+
+export const fxRate = pgTable('fx_rate', {
+	date: date('date').notNull(), currency: text('currency').notNull(),
+	unitsPerEur: numeric('units_per_eur').notNull(),
+	observedAt: timestamp('observed_at', { withTimezone: true }).notNull(),
+	evidence: jsonb('evidence').$type<Record<string, unknown>>().notNull()
+}, (t) => [primaryKey({ columns: [t.date, t.currency, t.observedAt] })]);
 
 /**
  * Long-format fundamentals. `metric` uses the fixed vocabulary in
@@ -140,6 +190,7 @@ export const fundamental = pgTable(
 		issuerId: integer('issuer_id')
 			.notNull()
 			.references(() => issuer.id),
+		instrumentId: integer('instrument_id').references(() => instrument.id),
 		metric: text('metric').notNull(),
 		value: numeric('value').notNull(),
 		currency: text('currency'),
@@ -151,14 +202,15 @@ export const fundamental = pgTable(
 		publishedAt: timestamp('published_at', { withTimezone: true }),
 		observedAt: timestamp('observed_at', { withTimezone: true }),
 		metadata: jsonb('metadata').$type<Record<string, unknown>>(),
-		eligibleForProduct: boolean('eligible_for_product').notNull().default(true),
+		qualification: text('qualification').notNull().default('qualified'),
+		qualificationReason: text('qualification_reason'),
 		periodType: text('period_type').notNull().default('LATEST'),
 		periodEnd: date('period_end').notNull(),
 		publishedDate: date('published_date').notNull(),
 		source: fundamentalSourceEnum('source').notNull()
 	},
 	(t) => [
-		uniqueIndex('fundamental_natural_key_idx').on(t.issuerId, t.metric, t.periodEnd, t.source).where(sql`${t.source} in ('boerse_frankfurt', 'esef')`),
+		index('fundamental_lookup_idx').on(t.issuerId, t.metric, t.periodEnd),
 		uniqueIndex('fundamental_source_record_idx').on(t.source, t.sourceRecordId)
 	]
 );
@@ -174,9 +226,12 @@ export const insiderTransaction = pgTable(
 		publishedAt: timestamp('published_at', { withTimezone: true }),
 		observedAt: timestamp('observed_at', { withTimezone: true }),
 		amendmentStatus: text('amendment_status'),
-		eligibleForProduct: boolean('eligible_for_product').notNull().default(true),
+		qualification: text('qualification').notNull().default('qualified'),
+		qualificationReason: text('qualification_reason'),
 		issuerId: integer('issuer_id').references(() => issuer.id),
 		isin: text('isin'),
+		instrumentId: integer('instrument_id').references(() => instrument.id),
+		economicKey: text('economic_key'),
 		issuerNameRaw: text('issuer_name_raw').notNull(),
 		partyName: text('party_name'),
 		partyRole: partyRoleEnum('party_role').notNull().default('other'),
@@ -248,7 +303,9 @@ export const newsItem = pgTable(
 	{
 		id: serial('id').primaryKey(),
 		filingId: integer('filing_id').references(() => sourceFiling.id),
-		eligibleForProduct: boolean('eligible_for_product').notNull().default(true),
+		qualification: text('qualification').notNull().default('qualified'),
+		qualificationReason: text('qualification_reason'),
+		observedAt: timestamp('observed_at', { withTimezone: true }),
 		source: text('source').notNull(),
 		externalId: text('external_id').notNull(),
 		instrumentId: integer('instrument_id').references(() => instrument.id),
@@ -289,6 +346,8 @@ export const signalRun = pgTable('signal_run', {
 	runDate: date('run_date').notNull().unique(),
 	status: runStatusEnum('status').notNull().default('running'),
 	universeSize: integer('universe_size'),
+	cutoffAt: timestamp('cutoff_at', { withTimezone: true }),
+	definitionVersions: jsonb('definition_versions').$type<Record<string, unknown>>(),
 	startedAt: timestamp('started_at', { withTimezone: true }).notNull().defaultNow(),
 	finishedAt: timestamp('finished_at', { withTimezone: true })
 });
@@ -330,6 +389,9 @@ export const signalPerformance = pgTable(
 			.notNull()
 			.references(() => signal.id, { onDelete: 'cascade' }),
 		horizonDays: integer('horizon_days').notNull(),
+		currency: text('currency'),
+		returnBasis: text('return_basis').notNull().default('legacy_unknown'),
+		sourceRunId: integer('source_run_id').references(() => signalRun.id, { onDelete: 'cascade' }),
 		baseDate: date('base_date').notNull(),
 		baseClose: numeric('base_close').notNull(),
 		fwdDate: date('fwd_date').notNull(),
@@ -394,11 +456,11 @@ export const userIgnoredAsset = pgTable(
 	'user_ignored_asset',
 	{
 		userUuid: text('user_uuid').notNull(),
-		isin: text('isin').notNull(),
+		assetId: text('asset_id').notNull(),
 		name: text('name').notNull(),
 		addedAt: timestamp('added_at', { withTimezone: true }).notNull().defaultNow()
 	},
-	(t) => [primaryKey({ columns: [t.userUuid, t.isin] })]
+	(t) => [primaryKey({ columns: [t.userUuid, t.assetId] })]
 );
 
 /** Bookkeeping + incremental watermarks per ingestion job execution. */
@@ -426,3 +488,10 @@ export const shortPositionSnapshot = pgTable('short_position_snapshot', {
 	rows: jsonb('rows').$type<ParsedShortPosition[]>().notNull(),
 	diagnostics: jsonb('diagnostics').$type<SnapshotDiagnostics>().notNull()
 }, (t) => [index('short_position_snapshot_captured_idx').on(t.capturedAt)]);
+
+/** Immutable product inputs and presentation data selected for one published run. */
+export const assetSnapshot = pgTable('asset_snapshot', {
+	runId: integer('run_id').notNull().references(() => signalRun.id, { onDelete: 'cascade' }),
+	instrumentId: integer('instrument_id').notNull().references(() => instrument.id),
+	payload: jsonb('payload').notNull()
+}, (t) => [primaryKey({ columns: [t.runId, t.instrumentId] })]);

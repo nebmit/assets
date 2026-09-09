@@ -1,13 +1,19 @@
+import { verifyUnavailableFiling } from './unavailable.js';
+import { HttpError } from '../../http.js';
+import { access } from 'node:fs/promises';
+import { SEC_NORMALIZATION_VERSION } from './facts.js';
+import { isDeepStrictEqual } from 'node:util';
+import { publishSecMemberships, symbolKey } from './universe.js';
 import { fetchIndexSnapshots, resolveIndexCiks } from './indices.js';
 import { selectedEntities, filingScope, isScoped, secJobName } from './selection.js';
-import { and, eq, inArray, isNotNull, sql } from 'drizzle-orm';
+import { and, eq, inArray, sql } from 'drizzle-orm';
 import { z } from 'zod';
-import { issuer, sourceFiling, ingestionRun } from '../../db/schema.js';
+import { issuer, sourceFiling, ingestionRun, newsItem, assetSnapshot, signalRun, instrument } from '../../db/schema.js';
 import type { Job, JobContext, JobStats } from '../../pipeline/types.js';
 import { addDays } from '../../util.js';
-import { archiveEvidence, fetchFinancialSubmission, fetchSecText, readZip, SecAccessError } from './client.js';
-import { cik, classifyIssuer, financialForm, ownershipForm, parseDirectory, parseMasterIndex, parseInsiderDataset, parseSubmissions, parseTickers, type Listing } from './parse.js';
-import { persistFacts, persistFiling, rememberFiling, updateIssuerMetadata } from './store.js';
+import { archiveEvidence, fetchFinancialSubmission, fetchSecText, readZip, SecAccessError, type Evidence } from './client.js';
+import { classifyIssuer, financialForm, ownershipForm, parseDirectory, parseMasterIndex, parseInsiderDataset, parseSubmissions, parseTickers, type Listing } from './parse.js';
+import { persistFacts, persistFiling, persistNews, SEC_NEWS_VERSION, rememberFiling, updateIssuerMetadata } from './store.js';
 
 export const SEC_SUBMISSIONS_ZIP = 'https://www.sec.gov/Archives/edgar/daily-index/bulkdata/submissions.zip';
 export const SEC_FACTS_ZIP = 'https://www.sec.gov/Archives/edgar/daily-index/xbrl/companyfacts.zip';
@@ -28,7 +34,7 @@ async function ingestSubmissions(ctx: JobContext, entityId: number, id: string, 
 	const raw = input as { filings?: { recent?: { form?: string[] } } };
 	const classification = classifyIssuer(parsed.metadata, listings, raw.filings?.recent?.form ?? []);
 	await updateIssuerMetadata(ctx, entityId, { ...classification, listings, submissions: parsed.metadata, submissionsFiles: parsed.files,
-		submissionsEvidence: evidence, ...(classification.status !== 'included' ? { submissionsCheckedAt: new Date().toISOString() } : {}) });
+		submissionsEvidence: evidence, ...(classification.status !== 'included' ? { submissionsCheckedAt: new Date().toISOString(), submissionsListings: listings } : {}) });
 	if (classification.status !== 'included') return;
 	for (const f of parsed.filings) {
 		if (f.filedDate <= ctx.runDate && f.filedDate >= (financialForm.test(f.form) ? financialCutoff(ctx.runDate) : ownershipCutoff(ctx.runDate))) await rememberFiling(ctx, f, entityId);
@@ -43,7 +49,14 @@ async function ingestSubmissions(ctx: JobContext, entityId: number, id: string, 
 		loadedFiles.add(file.name);
 		await updateIssuerMetadata(ctx, entityId, { loadedSubmissionsFiles: [...loadedFiles] });
 	}
-	await updateIssuerMetadata(ctx, entityId, { submissionsCheckedAt: new Date().toISOString() });
+	await updateIssuerMetadata(ctx, entityId, { submissionsCheckedAt: new Date().toISOString(), submissionsListings: listings });
+}
+
+/** Compare against the listings at the completed checkpoint, not the latest directory observation. */
+export function needsSubmissionsRefresh(metadata: Record<string, unknown> | null, listings: Listing[], runDate: string): boolean {
+	return !metadata?.submissionsCheckedAt || metadata.status === 'pending' ||
+		!isDeepStrictEqual(metadata.submissionsListings, listings) ||
+		String(metadata.submissionsCheckedAt) < addDays(runDate, -7);
 }
 
 export const secUniverseJob: Job = {
@@ -69,45 +82,48 @@ export const secUniverseJob: Job = {
 		}
 		// Exact symbols only. Punctuation/venue ambiguity is reported instead of guessed.
 		const listingsBySymbol = new Map<string, Listing[]>();
-		for (const l of listings) { const bucket = listingsBySymbol.get(l.symbol) ?? []; bucket.push(l); listingsBySymbol.set(l.symbol, bucket); }
+		for (const l of listings) { const bucket = listingsBySymbol.get(symbolKey(l.symbol)) ?? []; bucket.push(l); listingsBySymbol.set(symbolKey(l.symbol), bucket); }
 		const tickerCiks = new Map<string, Set<string>>();
 		for (const t of tickers) { const ids = tickerCiks.get(t.ticker) ?? new Set(); ids.add(t.cik); tickerCiks.set(t.ticker, ids); }
 		const grouped = new Map<string, { name: string; listings: Listing[] }>();
 		for (const t of tickers) {
 			if (ctx.cik && t.cik !== ctx.cik) continue;
 			if (snapshots.length && !membership.members.has(t.cik)) continue;
-			const matches = listingsBySymbol.get(t.ticker) ?? [];
+			const matches = listingsBySymbol.get(symbolKey(t.ticker)) ?? [];
 			if (!matches.length && !ctx.cik && !snapshots.length) continue;
 			const group = grouped.get(t.cik) ?? { name: t.name, listings: [] };
 			if (tickerCiks.get(t.ticker)?.size === 1) group.listings.push(...matches);
 			grouped.set(t.cik, group);
 		}
 		if (!grouped.size) throw new Error('no SEC issuer candidates resolved');
-		const refresh = new Map<string, { id: number; listings: Listing[] }>();
+		const refresh = new Map<string, { id: number; listings: Listing[]; checkedAt: string }>();
 		for (const [id, group] of grouped) {
 			const [entity] = await ctx.db.insert(issuer).values({ name: group.name, cik: id, secMetadata: { status: 'pending', reason: 'submissions_pending' } })
 				.onConflictDoUpdate({ target: issuer.cik, set: { cik: id } }).returning();
 			await updateIssuerMetadata(ctx, entity.id, { listings: group.listings, listingObservedAt: new Date().toISOString(), tickerEvidence: tickersPayload.evidence });
-			if (!entity.secMetadata?.submissionsCheckedAt || entity.secMetadata?.status === 'pending' || JSON.stringify(entity.secMetadata?.listings) !== JSON.stringify(group.listings) || String(entity.secMetadata?.submissionsCheckedAt ?? '') < addDays(ctx.runDate,-7)) refresh.set(id, { id: entity.id, listings: group.listings });
+			if (needsSubmissionsRefresh(entity.secMetadata, group.listings, ctx.runDate)) refresh.set(id, { id: entity.id, listings: group.listings, checkedAt: String(entity.secMetadata?.submissionsCheckedAt ?? '') });
 		}
 		// Preserve delisted entities and past observations, but don't claim they're current members.
 		if (!isScoped(ctx)) for (const entity of await entities(ctx)) if (!grouped.has(entity.cik!)) await updateIssuerMetadata(ctx, entity.id, { status: 'excluded', reason: 'not_in_current_directories', listingObservedAt: new Date().toISOString() });
 		let processed = 0;
-		if (refresh.size > 20 && !isScoped(ctx)) {
-			await readZip(SEC_SUBMISSIONS_ZIP, (name) => /^CIK\d{10}\.json$/.test(name) && refresh.has(name.slice(3,13)), async (name, text) => {
-				const id = name.slice(3,13), entry = refresh.get(id)!;
-				const evidence = await archiveEvidence(`${SEC_SUBMISSIONS_ZIP}#${name}`, text);
-				await ingestSubmissions(ctx, entry.id, id, JSON.parse(text), entry.listings, evidence); processed++;
-			});
-		} else {
-			for (const [id, entry] of refresh) {
-				const p = await jsonEvidence(`https://data.sec.gov/submissions/CIK${id}.json`);
-				await ingestSubmissions(ctx, entry.id, id, p.input, entry.listings, p.evidence); processed++;
+		{
+			if (refresh.size > 20 && !isScoped(ctx)) {
+				await readZip(SEC_SUBMISSIONS_ZIP, (name) => /^CIK\d{10}\.json$/.test(name) && refresh.has(name.slice(3,13)), async (name, text) => {
+					const id = name.slice(3,13), entry = refresh.get(id)!;
+					const evidence = await archiveEvidence(`${SEC_SUBMISSIONS_ZIP}#${name}`, text);
+					await ingestSubmissions(ctx, entry.id, id, JSON.parse(text), entry.listings, evidence); processed++;
+				});
+			} else {
+				for (const [id, entry] of [...refresh].sort((a, b) => a[1].checkedAt.localeCompare(b[1].checkedAt) || a[0].localeCompare(b[0]))) {
+					const p = await jsonEvidence(`https://data.sec.gov/submissions/CIK${id}.json`);
+					await ingestSubmissions(ctx, entry.id, id, p.input, entry.listings, p.evidence); processed++;
+				}
 			}
 		}
 		const unresolved = listings.filter((l) => !l.excludedReason && tickerCiks.get(l.symbol)?.size !== 1);
-		const report = await archiveEvidence('sec:universe-reconciliation', JSON.stringify({ observedAt: new Date().toISOString(), listings, unresolved, indexSnapshots: snapshots, unresolvedIndexHoldings: membership.unresolved, selectedCiks: ctx.issuerSelection?.ciks }));
-		return { ...(snapshots.length ? { indices: snapshots.map((s) => s.index).join(','), membership_basis: 'etf_holdings_proxy', selection_ciks: JSON.stringify(ctx.issuerSelection!.ciks), unresolved_index_holdings: membership.unresolved.length, holdings_as_of: snapshots.map((s) => `${s.index}:${s.asOf}`).join(',') } : {}), candidates: grouped.size, refreshed: processed, refresh_missing: refresh.size - processed, unresolved_listings: unresolved.length, directory_listings: listings.length, reconciliation_path: report.path };
+		const productMemberships = await publishSecMemberships(ctx, snapshots, tickers);
+		const report = await archiveEvidence('sec:universe-reconciliation', JSON.stringify({ observedAt: new Date().toISOString(), listings, unresolved, indexSnapshots: snapshots, unresolvedIndexHoldings: membership.unresolved, productMemberships, selectedCiks: ctx.issuerSelection?.ciks }));
+		return { ...(snapshots.length ? { indices: snapshots.map((s) => s.index).join(','), membership_basis: 'etf_holdings_proxy', selection_ciks: JSON.stringify(ctx.issuerSelection!.ciks), unresolved_index_holdings: membership.unresolved.length, holdings_as_of: snapshots.map((s) => `${s.index}:${s.asOf}`).join(',') } : {}), unqualified_product_holdings: productMemberships.reduce((n, r) => n + r.unresolved.length, 0), candidates: grouped.size, refreshed: processed, refresh_missing: refresh.size - processed, unresolved_listings: unresolved.length, directory_listings: listings.length, reconciliation_path: report.path };
 	}
 };
 
@@ -162,42 +178,101 @@ async function discover(ctx: JobContext, from: string, reconcile = false): Promi
 	return { indexes, newest };
 }
 async function processFilings(ctx: JobContext, ownership: boolean): Promise<JobStats> {
-	const ids = (await included(ctx)).map((e) => e.id);
+	const cohort = await included(ctx);
+	const ids = cohort.map((e) => e.id);
 	const rows = await ctx.db.select().from(sourceFiling).where(and(eq(sourceFiling.source, 'sec'), inArray(sourceFiling.status, ['pending', 'error']), filingScope(ctx, ids)));
-	ctx.log(`${ownership ? 'ownership' : 'financial/news'} queue: ${rows.filter((f) => ownershipForm.test(f.form) === ownership && f.filedDate <= ctx.runDate).length} filings for ${ids.length} issuers`);
-	let processed = 0, failed = 0;
-	for (const f of rows) {
-		if (f.filedDate > ctx.runDate || ownershipForm.test(f.form) !== ownership) continue;
-		try {
-			if (ownership) {
-				const text = await fetchSecText(f.url);
-				await persistFiling(ctx, f, text, await archiveEvidence(f.url, text));
-			} else {
-				const { header, evidence } = await fetchFinancialSubmission(f.url, f.externalId);
-				await persistFiling(ctx, f, header, evidence);
+	const queue = rows.filter((f) => f.filedDate <= ctx.runDate && ownershipForm.test(f.form) === ownership).sort((a, b) => b.filedDate.localeCompare(a.filedDate));
+	ctx.log(`${ownership ? 'ownership' : 'financial/news'} queue: ${queue.length} filings for ${ids.length} issuers`);
+	let processed = 0, failed = 0, unavailable = 0, cursor = 0;
+	let accessError: SecAccessError | undefined;
+	async function consume() {
+		while (cursor < queue.length && !accessError) {
+			const f = queue[cursor++];
+			try {
+				if (ownership) {
+					const text = await fetchSecText(f.url);
+					await persistFiling(ctx, f, text, await archiveEvidence(f.url, text));
+				} else {
+					const { header, evidence } = await fetchFinancialSubmission(f.url, f.externalId);
+					await persistFiling(ctx, f, header, evidence);
+				}
+				processed++;
+				if (processed % 100 === 0) ctx.log(`processed ${processed} ${ownership ? 'ownership' : 'financial/news'} filings; ${failed} failed`);
+			} catch (error) {
+				if (error instanceof SecAccessError) { accessError = error; break; }
+				if (error instanceof HttpError && error.status === 404) {
+					const cik = cohort.find((e) => e.id === f.issuerId)?.cik;
+					try {
+						const verification = cik && await verifyUnavailableFiling(f, cik);
+						if (verification) {
+							await ctx.db.update(sourceFiling).set({ status: 'unavailable', error: 'SEC archive returns 404; filing is absent from the rebuilt index and issuer submissions', attempts: f.attempts + 1, updatedAt: new Date(), metadata: { ...f.metadata, sourceState: 'unavailable', unavailableVerification: verification } }).where(eq(sourceFiling.id, f.id));
+							unavailable++; ctx.log(`${f.externalId}: verified unavailable at SEC`); continue;
+						}
+					} catch (verificationError) {
+						if (verificationError instanceof SecAccessError) { accessError = verificationError; break; }
+						ctx.log(`${f.externalId}: could not verify source availability: ${String(verificationError)}`);
+					}
+				}
+				failed++;
+				await ctx.db.update(sourceFiling).set({ status: 'error', error: String(error), attempts: f.attempts + 1, updatedAt: new Date() }).where(eq(sourceFiling.id, f.id));
+				ctx.log(`${f.externalId}: ${String(error)}`);
 			}
-			processed++;
-			if (processed % 100 === 0) ctx.log(`processed ${processed} ${ownership ? 'ownership' : 'financial/news'} filings; ${failed} failed`);
-		} catch (error) {
-			if (error instanceof SecAccessError) throw error;
-			failed++;
-			await ctx.db.update(sourceFiling).set({ status: 'error', error: String(error), attempts: f.attempts + 1, updatedAt: new Date() }).where(eq(sourceFiling.id, f.id));
-			ctx.log(`${f.externalId}: ${String(error)}`);
 		}
 	}
-	return { processed, failed };
+	// Hide network latency with bounded independent filings; all requests still share the 200ms limiter.
+	const workers = await Promise.allSettled(Array.from({ length: Math.min(15, queue.length) }, consume));
+	if (accessError) throw accessError;
+	const rejected = workers.find((r) => r.status === 'rejected');
+	if (rejected?.status === 'rejected') throw rejected.reason;
+	return { processed, failed, unavailable, deferred: queue.length - processed - failed - unavailable };
+}
+/** Durable migration repair is independent of the filing download queue. */
+export async function repairNews(ctx: JobContext): Promise<{ repaired: number; failed: number }> {
+	const ids = (await included(ctx)).map((e) => e.id);
+	if (!ids.length) return { repaired: 0, failed: 0 };
+	const rows = await ctx.db.select({ filing: sourceFiling }).from(sourceFiling)
+		.leftJoin(newsItem, eq(newsItem.filingId, sourceFiling.id))
+		.where(and(eq(sourceFiling.source, 'sec'), eq(sourceFiling.status, 'processed'), inArray(sourceFiling.issuerId, ids),
+			sql`${sourceFiling.filedDate} <= ${ctx.runDate} and ${sourceFiling.form} ~ '^(10-K|10-Q|8-K)(/A)?$'`,
+			sql`(${newsItem.id} is null or ${newsItem.qualification} <> 'qualified' or coalesce(${newsItem.raw}->>'normalizationVersion', '') <> ${String(SEC_NEWS_VERSION)})`));
+	let repaired = 0, failed = 0;
+	for (const { filing } of rows) {
+		try {
+			const evidence = (filing.metadata.documents as Evidence[] | undefined)?.find((e) => e.hash === filing.metadata.currentHash);
+			const archived = evidence && await access(evidence.path).then(() => true, () => false);
+			if (evidence && archived) await persistNews(ctx, filing, evidence);
+			else {
+				const { header, evidence: fetched } = await fetchFinancialSubmission(filing.url, filing.externalId);
+				await persistFiling(ctx, filing, header, fetched);
+			}
+			repaired++;
+		} catch (error) {
+			if (error instanceof SecAccessError) throw error;
+			failed++; ctx.log(`news repair failed ${filing.externalId}: ${String(error)}`);
+		}
+	}
+	return { repaired, failed };
+}
+async function processFinancialFilings(ctx: JobContext): Promise<JobStats> {
+	const filings = await processFilings(ctx, false);
+	const news = await repairNews(ctx);
+	return { ...filings, news_repaired: news.repaired, news_failed: news.failed, failed: Number(filings.failed ?? 0) + news.failed };
 }
 export const secFilingsJob: Job = {
 	name: 'sec_filings', source: 'sec', async run(ctx) {
 		if (isScoped(ctx)) {
 			const cohort = await included(ctx);
 			if (!cohort.length) throw new Error('No selected eligible issuers; run --source=sec to discover the index universe first');
-			ctx.log(`refreshing submissions for ${cohort.length} selected issuers`);
-			for (const e of cohort) {
+			const pending = cohort.filter((e) => String(e.secMetadata?.submissionsCheckedAt ?? '').slice(0, 10) < ctx.runDate)
+				.sort((a, b) => String(a.secMetadata?.submissionsCheckedAt ?? '').localeCompare(String(b.secMetadata?.submissionsCheckedAt ?? '')));
+			ctx.log(`submissions refresh queue: ${pending.length} of ${cohort.length} selected issuers`);
+			let refreshed = 0;
+			for (const e of pending) {
 				const payload = await jsonEvidence(`https://data.sec.gov/submissions/CIK${e.cik}.json`);
 				await ingestSubmissions(ctx,e.id,e.cik!,payload.input,(e.secMetadata?.listings ?? []) as Listing[],payload.evidence);
+				refreshed++;
 			}
-			return { discovery: 'issuer_submissions', issuers: cohort.length, ...await processFilings(ctx,false) };
+			return { discovery: 'issuer_submissions', issuers: cohort.length, submissions_refreshed: refreshed, submissions_deferred: pending.length - refreshed, ...await processFinancialFilings(ctx) };
 		}
 		const [last] = await ctx.db.select().from(ingestionRun).where(and(eq(ingestionRun.source,'sec'), eq(ingestionRun.job, secJobName('sec_filings', ctx)), sql`${ingestionRun.stats}->>'completed_through' is not null`)).orderBy(sql`${ingestionRun.finishedAt} desc`).limit(1);
 		const stats = last?.stats as Record<string, unknown> | null;
@@ -211,7 +286,7 @@ export const secFilingsJob: Job = {
 			const p = await jsonEvidence(`https://data.sec.gov/submissions/CIK${e.cik}.json`);
 			await ingestSubmissions(ctx,e.id,e.cik!,p.input,(e.secMetadata?.listings ?? []) as Listing[],p.evidence);
 		}
-		return { indexes: discovery.indexes, completed_through: discovery.newest, ...await processFilings(ctx, false) };
+		return { indexes: discovery.indexes, completed_through: discovery.newest, ...await processFinancialFilings(ctx) };
 	}
 };
 export const secInsidersJob: Job = { name: 'sec_insiders', source: 'sec', run: (ctx) => processFilings(ctx, true) };
@@ -222,12 +297,12 @@ export const secFundamentalsJob: Job = {
 		const pending = new Map<string, typeof all[number]>();
 		for (const e of all) {
 			const [latest] = await ctx.db.select({ updatedAt: sourceFiling.updatedAt }).from(sourceFiling).where(and(eq(sourceFiling.issuerId,e.id), eq(sourceFiling.source,'sec'), sql`${sourceFiling.form} ~ '^10-(K|Q)'`)).orderBy(sql`${sourceFiling.updatedAt} desc`).limit(1);
-			if (e.secMetadata?.factsStatus !== 'processed' || (latest && latest.updatedAt.toISOString() > String(e.secMetadata?.factsCheckedAt ?? ''))) pending.set(e.cik!, e);
+			if (e.secMetadata?.factsNormalizationVersion !== SEC_NORMALIZATION_VERSION || e.secMetadata?.factsStatus !== 'processed' || (latest && latest.updatedAt.toISOString() > String(e.secMetadata?.factsCheckedAt ?? ''))) pending.set(e.cik!, e);
 		}
-		let processed = 0, failed = 0;
+		let processed = 0, failed = 0, pendingFacts = 0;
 		async function consume(id: string, text: string, url: string) {
 			const e = pending.get(id)!;
-			try { const evidence = await archiveEvidence(url,text); await persistFacts(ctx,e,JSON.parse(text),evidence,financialCutoff(ctx.runDate)); processed++; }
+			try { const evidence = await archiveEvidence(url,text); const result = await persistFacts(ctx,e,JSON.parse(text),evidence,financialCutoff(ctx.runDate)); pendingFacts += result.missingFilings; processed++; if (processed % 25 === 0) ctx.log(`normalized ${processed} of ${pending.size} issuers; ${failed} failed`); }
 			catch (error) {
 				if (error instanceof SecAccessError) throw error;
 				failed++;
@@ -235,21 +310,29 @@ export const secFundamentalsJob: Job = {
 				await updateIssuerMetadata(ctx,e.id,{ factsStatus: 'error', factsError: String(error) });
 			}
 		}
-		if (pending.size > 20 && !isScoped(ctx)) {
-			const seen = new Set<string>();
-			await readZip(SEC_FACTS_ZIP,(name) => /^CIK\d{10}\.json$/.test(name) && pending.has(name.slice(3,13)),async (name,text) => { const id = name.slice(3,13); seen.add(id); await consume(id,text,`${SEC_FACTS_ZIP}#${name}`); });
-			for (const [id,e] of pending) if (!seen.has(id)) { failed++; await updateIssuerMetadata(ctx,e.id,{ factsStatus: 'unavailable', factsError: 'missing_from_companyfacts_archive' }); }
-		} else for (const [id,e] of pending) {
-			const url = `https://data.sec.gov/api/xbrl/companyfacts/CIK${id}.json`;
-			try { await consume(id,await fetchSecText(url),url); }
-			catch (error) {
-				if (error instanceof SecAccessError) throw error;
-				failed++;
-				ctx.log(`fundamentals failed for CIK ${id} (${url}): ${String(error)}`);
-				await updateIssuerMetadata(ctx,e.id,{ factsStatus: 'error', factsError: String(error) });
+		{
+			if (pending.size > 20 && !isScoped(ctx)) {
+				const seen = new Set<string>();
+				await readZip(SEC_FACTS_ZIP,(name) => /^CIK\d{10}\.json$/.test(name) && pending.has(name.slice(3,13)),async (name,text) => { const id = name.slice(3,13); seen.add(id); await consume(id,text,`${SEC_FACTS_ZIP}#${name}`); });
+				for (const [id,e] of pending) if (!seen.has(id)) { failed++; await updateIssuerMetadata(ctx,e.id,{ factsStatus: 'unavailable', factsError: 'missing_from_companyfacts_archive' }); }
+			} else {
+				const entries = [...pending];
+				for (let offset = 0; offset < entries.length; offset += 3) {
+					const batch = await Promise.allSettled(entries.slice(offset, offset + 3).map(async ([id, e]) => {
+						const url = `https://data.sec.gov/api/xbrl/companyfacts/CIK${id}.json`;
+						try { await consume(id, await fetchSecText(url), url); }
+						catch (error) {
+							if (error instanceof SecAccessError) throw error;
+							failed++; ctx.log(`fundamentals failed for CIK ${id} (${url}): ${String(error)}`);
+							await updateIssuerMetadata(ctx, e.id, { factsStatus: 'error', factsError: String(error) });
+						}
+					}));
+					const rejected = batch.find((r) => r.status === 'rejected');
+					if (rejected?.status === 'rejected') throw rejected.reason;
+				}
 			}
 		}
-		return { issuers: all.length, refreshed: processed, failed };
+		return { issuers: all.length, normalization_version: SEC_NORMALIZATION_VERSION, refreshed: processed, failed, pending: pendingFacts, deferred: pending.size - processed - failed };
 	}
 };
 
@@ -257,7 +340,8 @@ export const secReconcileJob: Job = {
 	name: 'sec_reconcile', source: 'sec', async run(ctx): Promise<JobStats> {
 		if (isScoped(ctx)) {
 			const cohort = await included(ctx);
-			for (const e of cohort) {
+			for (const e of cohort.sort((a,b) => String(a.secMetadata?.submissionsCheckedAt ?? '').localeCompare(String(b.secMetadata?.submissionsCheckedAt ?? '')))) {
+				if (String(e.secMetadata?.submissionsCheckedAt ?? '').slice(0, 10) >= ctx.runDate) continue;
 				const payload = await jsonEvidence(`https://data.sec.gov/submissions/CIK${e.cik}.json`);
 				await ingestSubmissions(ctx,e.id,e.cik!,payload.input,(e.secMetadata?.listings ?? []) as Listing[],payload.evidence,true);
 				await updateIssuerMetadata(ctx,e.id,{ factsStatus: 'reconciliation_pending' });
@@ -318,6 +402,9 @@ export async function secReport(ctx: JobContext): Promise<Record<string, unknown
 			min(filed_date) as earliest_filing, max(filed_date) as latest_filing,
 			count(*) filter (where status = 'pending')::int as pending,
 			count(*) filter (where status = 'error')::int as failed,
+			count(*) filter (where status = 'unavailable')::int as unavailable,
+			count(*) filter (where form ~ '^(10-K|10-Q|8-K)(/A)?$' and status in ('pending', 'error'))::int as incomplete_financial_filings,
+			count(*) filter (where form ~ '^(3|4|5)(/A)?$' and status in ('pending', 'error'))::int as incomplete_insider_filings,
 			count(*) filter (where metadata->>'amendmentStatus' = 'unresolved')::int as unresolved_amendments,
 			count(*) filter (where metadata->>'sourceState' = 'missing_from_rebuilt_index')::int as missing_from_index
 		from source_filing where source = 'sec' ${isScoped(ctx) ? sql`and ${filingScope(ctx, all.map((e) => e.id))}` : sql``} group by issuer_id
@@ -328,13 +415,24 @@ export async function secReport(ctx: JobContext): Promise<Record<string, unknown
 	const universeStats = universeRun?.stats as Record<string, unknown> | undefined;
 	const summary = { included: 0, excluded: 0, pending: 0 };
 	for (const e of all) { const status = e.secMetadata?.status; summary[status === 'included' || status === 'excluded' ? status : 'pending']++; }
-	return { generatedAt: new Date().toISOString(), requestedThrough: ctx.runDate,
-		prices: 'unsupported', shortPositions: 'unsupported', selection: { indices: ctx.cik ? [] : ctx.issuerSelection?.indices ?? 'all', membershipBasis: ctx.issuerSelection?.indices ? 'etf_holdings_proxy' : 'sec_directory', observedAt: universeRun?.finishedAt, holdingsAsOf: universeStats?.holdings_as_of, unresolvedHoldings: universeStats?.unresolved_index_holdings, evidencePath: universeStats?.reconciliation_path, ciks: all.map((e) => e.cik) }, summary,
+	const coverage = await ctx.db.execute(sql`
+		select r.run_date, metric.key as metric, metric.value->>'state' as state,
+			metric.value->>'reason' as reason, count(*)::int as assets
+		from ${assetSnapshot} a join ${signalRun} r on r.id=a.run_id
+		join ${instrument} i on i.id=a.instrument_id
+		cross join lateral jsonb_each(a.payload->'financials') metric
+		where r.id=(select max(id) from ${signalRun} where status='success')
+			and i.issuer_id in (${all.length ? sql.join(all.map((e) => sql`${e.id}`), sql`, `) : sql`null`})
+		group by r.run_date, metric.key, metric.value->>'state', metric.value->>'reason'
+		order by metric.key, state, reason
+	`);
+	return { generatedAt: new Date().toISOString(), requestedThrough: ctx.runDate, normalizationVersion: SEC_NORMALIZATION_VERSION, financialCoverage: coverage,
+		prices: 'alpaca_sip_coverage_in_asset_snapshots', shortPositions: 'unavailable', selection: { indices: ctx.cik ? [] : ctx.issuerSelection?.indices ?? 'all', membershipBasis: ctx.issuerSelection?.indices ? 'etf_holdings_proxy' : 'sec_directory', observedAt: universeRun?.finishedAt, holdingsAsOf: universeStats?.holdings_as_of, unresolvedHoldings: universeStats?.unresolved_index_holdings, evidencePath: universeStats?.reconciliation_path, ciks: all.map((e) => e.cik) }, summary,
 		issuers: all.map((e) => ({ cik: e.cik, name: e.name, status: e.secMetadata?.status, reason: e.secMetadata?.reason,
 			listings: e.secMetadata?.listings, listingObservedAt: e.secMetadata?.listingObservedAt,
-			factsStatus: e.secMetadata?.factsStatus ?? 'pending', factsCheckedAt: e.secMetadata?.factsCheckedAt,
+			factsStatus: e.secMetadata?.factsStatus ?? 'pending', factsNormalizationVersion: e.secMetadata?.factsNormalizationVersion ?? null, factsCheckedAt: e.secMetadata?.factsCheckedAt,
 			factIssues: e.secMetadata?.factIssues, factsError: e.secMetadata?.factsError,
 			normalizedFacts: e.secMetadata?.normalizedFacts ?? 0, coverage: counts.get(e.id) ?? { filings: 0 },
-			ownershipCurrency: 'unqualified', comparablePerShareBasis: 'unqualified'
+			ownershipCurrency: 'qualified_per_transaction_in_asset_snapshots', comparablePerShareBasis: 'qualified_per_metric_in_asset_snapshots'
 		})), unmatchedFilings: counts.get(null as unknown as number) ?? null, runs };
 }

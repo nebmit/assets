@@ -1,10 +1,14 @@
 import type { ShortSellerAnalysis } from '../../shortSellers.js';
 export interface InsiderTx {
 	partyName: string | null;
-	partyRole: 'executive_board' | 'supervisory_board' | 'related_party' | 'other';
+	partyRole: 'executive' | 'director' | 'related_party' | 'other';
 	side: 'buy' | 'sell' | 'other';
 	instrumentType: string | null;
 	amount: number | null;
+	amountEur: number | null;
+	currency: string | null;
+	buyerKey: string;
+	currencyStatus?: string; qualificationReason?: string | null;
 	transactionDate: string;
 	publishedDate: string;
 }
@@ -13,11 +17,13 @@ export interface UniverseInstrument {
 	shortSellers: ShortSellerAnalysis;
 	instrumentId: number;
 	issuerId: number;
-	isin: string;
+	assetId: string;
+	isin: string | null;
+	currency: string;
 	ticker: string | null;
 	name: string;
 	sector: string | null;
-	indexName: 'DAX' | 'MDAX' | 'SDAX';
+	sizeBand: 'large' | 'mid' | 'small';
 	/** Latest close on or before runDate (null if no price stored). */
 	close: number | null;
 	closeDate: string | null;

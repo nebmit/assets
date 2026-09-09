@@ -6,7 +6,7 @@ import type { CardData } from './types.js';
 function card(overrides: Partial<CardData>): CardData {
 	return {
 		shortSellers: unknownShortSellers(),
-		instrumentId: 1,
+		instrumentId: 1, assetId: '00000000-0000-4000-8000-000000000001', ticker: 'SAP', currency: 'EUR', mic: 'XETR', source: 'boerse_frankfurt', links: { quote: null, filings: null, insiders: null }, coverage: {},
 		isin: 'DE0007164600',
 		wkn: '716460',
 		name: 'SAP SE',

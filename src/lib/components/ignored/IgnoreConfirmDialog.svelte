@@ -15,7 +15,7 @@
 
 	const card = $derived(ignoreConfirm.pending);
 	const watchlisted = $derived(
-		watchlist.status === 'ready' && card !== null && watchlist.isins.has(card.isin)
+		watchlist.status === 'ready' && card !== null && watchlist.assetIds.has(card.assetId)
 	);
 	const watchlistUnknown = $derived(
 		watchlist.status === 'locked' ||
@@ -35,7 +35,7 @@
 	>
 		<p class="m-0">
 			<span class="font-medium text-text-secondary">{card.name}</span>
-			<span class="tabular-nums">({card.isin})</span>
+
 			will be hidden from every page — overview, watchlist, search and the
 			MCP tools.
 		</p>

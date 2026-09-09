@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { unknownShortSellers, type ShortSellerAnalysis } from '../../shortSellers.js';
 
 export const shortSellerAnalysisSchema = z.object({
-	status: z.enum(['present', 'none_disclosed', 'unknown']),
+	status: z.enum(['present', 'none_disclosed', 'unknown', 'unavailable']),
 	freshness: z.enum(['fresh', 'stale', 'unavailable']),
 	snapshotId: z.number().int().positive().nullable(),
 	capturedAt: z.string().datetime().nullable(),

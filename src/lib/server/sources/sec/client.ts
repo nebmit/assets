@@ -73,7 +73,7 @@ async function response(url: string): Promise<Response> {
 	throw new Error('too many source redirects');
 }
 
-/** One request at a time in current jobs; limiter is shared by all provider endpoints. */
+/** The limiter is shared across concurrent filing workers and all provider endpoints. */
 async function request<T>(url: string, consume: (res: Response) => Promise<T>): Promise<T> {
 	return retryTransport(async () => {
 		const res = await response(url);

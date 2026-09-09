@@ -1,7 +1,7 @@
 <script lang="ts">
-	import { bafinDealingsUrl } from '$lib/externalLinks.js';
+	import type { AssetLinks } from '$lib/externalLinks.js';
 	import { FINANCIAL_TERMS } from '$lib/financialTerms.js';
-	import { ageOpacity, formatCompactEur, formatDayMonth } from '$lib/format.js';
+	import { ageOpacity, formatCompactNumber, formatDayMonth } from '$lib/format.js';
 	import type { InsiderRowView, PartyRole, TransactionSide } from '$lib/feed/types.js';
 	import Badge from '../ds/Badge.svelte';
 	import Link from '../ds/Link.svelte';
@@ -15,17 +15,17 @@
 	interface Props {
 		insiders: InsiderRowView[];
 		asOf: string;
-		isin: string;
+		links: AssetLinks;
 	}
 
-	let { insiders, asOf, isin }: Props = $props();
+	let { insiders, asOf, links }: Props = $props();
 
-	const bafinUrl = $derived(bafinDealingsUrl(isin));
+	const sourceUrl = $derived(links.insiders);
 	const displayedInsiders = $derived(insiders.filter((trade) => trade.side !== 'other'));
 
 	const ROLE_LABELS: Record<PartyRole, string> = {
-		executive_board: 'Exec. board',
-		supervisory_board: 'Sup. board',
+		executive: 'Executive',
+		director: 'Director',
 		related_party: 'Related',
 		other: 'Other'
 	};
@@ -54,18 +54,12 @@
 			<span class="micro-label">Insider trades</span>
 		</TermHelp>
 		<span class="inline-flex items-center gap-[5px]">
-			<Link href={bafinUrl} external variant="quiet" size="xs">BaFin</Link>
-			<TermHelp
-				term={FINANCIAL_TERMS.bafin.term}
-				definition={FINANCIAL_TERMS.bafin.definition}
-				clarification={FINANCIAL_TERMS.bafin.clarification}
-				align="right"
-			/>
+			{#if sourceUrl}<Link href={sourceUrl} external variant="quiet" size="xs">Filings</Link>{/if}
 		</span>
 	</div>
 	{#if displayedInsiders.length === 0}
 		<div class="border-t border-border-subtle py-[7px] font-mono text-xs text-text-muted">
-			None in window
+			No transactions available in this window
 		</div>
 	{:else}
 		{#each displayedInsiders as trade (trade)}
@@ -81,8 +75,10 @@
 				<span class="font-mono text-2xs text-text-tertiary tabular-nums">
 					{formatDayMonth(trade.transactionDate)}
 				</span>
-				<span class="text-right font-mono text-xs font-medium tabular-nums">
-					{trade.amount === null ? '—' : `€${formatCompactEur(trade.amount)}`}
+				<span title={trade.qualificationReason ?? (trade.currencyStatus === 'inferred_usd' ? 'USD inferred from matched share class' : undefined)} class="text-right font-mono text-xs font-medium tabular-nums">
+					{trade.amount === null ? '—' : `${trade.currency ?? ''} ${formatCompactNumber(trade.amount)}`}
+					{#if trade.currencyStatus === 'inferred_usd'}<span class="block text-2xs font-normal text-text-muted">USD inferred</span>{/if}
+					{#if trade.qualification !== 'qualified'}<span class="block text-2xs font-normal text-text-muted">Not scored</span>{/if}
 				</span>
 			</div>
 		{/each}

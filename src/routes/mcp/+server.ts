@@ -10,7 +10,7 @@ import { enrichedSignalReport } from '$lib/server/mcp/report.js';
 import { buildMcpServer } from '$lib/server/mcp/server.js';
 import { SessionStore } from '$lib/server/mcp/sessions.js';
 import { latestRunDate } from '$lib/server/signals/report.js';
-import { listIgnoredIsins } from '$lib/server/userData/ignoredAssets.js';
+import { listIgnoredAssetIds } from '$lib/server/userData/ignoredAssets.js';
 import type { RequestHandler } from './$types.js';
 
 /**
@@ -65,7 +65,7 @@ export const POST: RequestHandler = async ({ request, getClientAddress }) => {
 		// The account's ignore list is re-read per call so mid-session edits
 		// in the web app apply to the next tool call immediately.
 		signalReport: async (slug, runDate, top) =>
-			enrichedSignalReport(db, slug, runDate, top, await listIgnoredIsins(db, userUuid)),
+			enrichedSignalReport(db, slug, runDate, top, await listIgnoredAssetIds(db, userUuid)),
 		issuerDetail: (isin, runDate) => issuerDetail(db, isin, runDate)
 	});
 	const newTransport = new WebStandardStreamableHTTPServerTransport({

@@ -2,12 +2,12 @@ import { describe, expect, it } from 'vitest';
 import { allJobs, selectJobs } from './jobs.js';
 
 describe('daily worker registry', () => {
-	it('includes SEC by default after German results and preserves SEC dependency order', () => {
+	it('includes SEC by default before combined results and preserves SEC dependency order', () => {
 		const jobs = selectJobs();
 		expect(jobs).toEqual(allJobs);
 		expect(new Set(jobs.map((job) => job.name)).size).toBe(jobs.length);
 		expect(jobs.filter((job) => job.source === 'sec').map((job) => job.name)).toEqual(['sec_universe', 'sec_filings', 'sec_fundamentals', 'sec_insiders']);
-		expect(jobs.findIndex((job) => job.name === 'signals')).toBeLessThan(jobs.findIndex((job) => job.name === 'sec_universe'));
+		expect(jobs.findIndex((job) => job.name === 'signals')).toBeGreaterThan(jobs.findIndex((job) => job.name === 'sec_fundamentals'));
 	});
 	it('uses source as an optional filter and validates individual jobs', () => {
 		expect(selectJobs('all', 'sec')).toEqual(allJobs.filter((job) => job.source === 'sec'));

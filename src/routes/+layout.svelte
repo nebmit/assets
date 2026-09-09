@@ -41,7 +41,7 @@
 	$effect(() => {
 		if (watchlist.status !== 'ready' || ignored.status !== 'ready') return;
 		for (const entry of watchlist.entries) {
-			if (ignored.isins.has(entry.isin)) watchlist.remove(entry.isin);
+			if (ignored.assetIds.has(entry.assetId)) watchlist.remove(entry.assetId);
 		}
 	});
 

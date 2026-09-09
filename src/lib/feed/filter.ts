@@ -6,7 +6,8 @@ export function matchesSearch(card: CardData, query: string): boolean {
 	if (q === '') return true;
 	return (
 		card.name.toLowerCase().includes(q) ||
-		card.isin.toLowerCase().includes(q) ||
+		(card.isin ?? '').toLowerCase().includes(q) ||
+		(card.ticker ?? '').toLowerCase().includes(q) ||
 		(card.wkn ?? '').toLowerCase().includes(q)
 	);
 }

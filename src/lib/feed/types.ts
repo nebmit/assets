@@ -1,3 +1,4 @@
+import type { AssetLinks } from '../externalLinks.js';
 import type { ShortSellerAnalysis } from '../shortSellers.js';
 /**
  * Shared (server → client) payload types for the surfaced feed. Everything
@@ -6,7 +7,7 @@ import type { ShortSellerAnalysis } from '../shortSellers.js';
 
 import type { FeedViewOption, FeedViewSlug } from './views.js';
 
-export type PartyRole = 'executive_board' | 'supervisory_board' | 'related_party' | 'other';
+export type PartyRole = 'executive' | 'director' | 'related_party' | 'other';
 export type TransactionSide = 'buy' | 'sell' | 'other';
 
 /** One point of the weekly-downsampled trailing three-year price series. */
@@ -20,18 +21,27 @@ export interface InsiderRowView {
 	partyName: string | null;
 	partyRole: PartyRole;
 	side: TransactionSide;
-	/** Transaction value in EUR, when reported. */
+	/** Transaction value in the reported currency, when available. */
 	amount: number | null;
+	currency: string | null;
+	qualification: string;
+	qualificationReason: string | null;
+	currencyStatus: string;
+	url: string | null;
 	/** ISO date (yyyy-mm-dd). */
 	transactionDate: string;
 }
 
 export interface NewsRowView {
+	form: string | null;
+	accession: string | null;
 	headline: string;
 	/** Source-native type vocabulary (free text), e.g. "Ad-hoc". */
 	newsType: string | null;
 	/** ISO timestamp. */
 	publishedAt: string;
+	source: string;
+	url: string | null;
 }
 
 /** Why an asset was surfaced: one fired signal with its evidence one-liner. */
@@ -50,7 +60,14 @@ export type LifecycleState = 'new' | 'strengthening' | 'persisting' | 'fading';
 export interface CardData {
 	shortSellers: ShortSellerAnalysis;
 	instrumentId: number;
-	isin: string;
+	assetId: string;
+	isin: string | null;
+	ticker: string | null;
+	currency: string;
+	mic: string;
+	source: string;
+	links: AssetLinks;
+	coverage: Record<string, { state: string; reason: string | null }>;
 	wkn: string | null;
 	name: string;
 	sector: string | null;
@@ -71,11 +88,11 @@ export interface CardData {
 	peerMedianPe: number | null;
 	/** (pe − peer median) / peer median × 100; positive = premium (a caution, not a gain). */
 	peDeltaPct: number | null;
-	/** Price-to-book, provider-supplied (Börse Frankfurt). */
+	/** Qualified price-to-book ratio. */
 	pb: number | null;
-	/** Basic EPS (ttm), EUR. */
+	/** Qualified trailing basic EPS, in the quote currency. */
 	eps: number | null;
-	/** Market capitalization, EUR. */
+	/** Market capitalization, in the quote currency. */
 	marketCap: number | null;
 	/** Up to 5, newest first. */
 	insiders: InsiderRowView[];
@@ -83,8 +100,11 @@ export interface CardData {
 	news: NewsRowView[];
 }
 
+export interface AssetCatalogEntry { assetId: string; isin: string | null; ticker: string | null; name: string; wkn: string | null; sector: string | null; currency: string; mic: string; links: AssetLinks }
+
 export interface FeedPayload {
-	shortSellersByIsin: Record<string, ShortSellerAnalysis>;
+	catalog: AssetCatalogEntry[];
+	shortSellersByAssetId: Record<string, ShortSellerAnalysis>;
 	/** Signal-run date (yyyy-mm-dd) all card data is point-in-time consistent with. */
 	runDate: string;
 	universeSize: number | null;

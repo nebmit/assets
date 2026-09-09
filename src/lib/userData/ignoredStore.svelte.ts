@@ -23,7 +23,7 @@ export class IgnoredAssetsStore {
 	/** Mutation failure banner; the list stays usable while set. */
 	syncError = $state<string | null>(null);
 
-	readonly isins = $derived(new Set(this.entries.map((e) => e.isin)));
+	readonly assetIds = $derived(new Set(this.entries.map((e) => e.assetId)));
 	readonly count = $derived(this.entries.length);
 
 	private userUuid: string | null = null;
@@ -92,10 +92,10 @@ export class IgnoredAssetsStore {
 	}
 
 	/** Adds an asset (no-op when already ignored), snapshotting its display name. */
-	add(card: Pick<CardData, 'isin' | 'name'>): void {
-		if (this.status !== 'ready' || this.isins.has(card.isin)) return;
+	add(card: Pick<CardData, 'assetId' | 'name'>): void {
+		if (this.status !== 'ready' || this.assetIds.has(card.assetId)) return;
 		const entry: ListEntry = {
-			isin: card.isin,
+			assetId: card.assetId,
 			name: card.name,
 			addedAt: new Date().toISOString()
 		};
@@ -103,11 +103,11 @@ export class IgnoredAssetsStore {
 		void this.persistAdd(entry);
 	}
 
-	remove(isin: string): void {
+	remove(assetId: string): void {
 		if (this.status !== 'ready') return;
-		const entry = this.entries.find((e) => e.isin === isin);
+		const entry = this.entries.find((e) => e.assetId === assetId);
 		if (entry === undefined) return;
-		this.entries = this.entries.filter((e) => e.isin !== isin);
+		this.entries = this.entries.filter((e) => e.assetId !== assetId);
 		void this.persistRemove(entry);
 	}
 
@@ -124,23 +124,23 @@ export class IgnoredAssetsStore {
 			const response = await fetch(LIST_URL, {
 				method: 'POST',
 				headers: { 'content-type': 'application/json' },
-				body: JSON.stringify({ isin: entry.isin, name: entry.name })
+				body: JSON.stringify({ assetId: entry.assetId, name: entry.name })
 			});
 			if (!response.ok) throw new Error(`ignore add failed (${response.status})`);
 			const body = (await response.json()) as { entry: ListEntry };
 			// Adopt the authoritative row (server timestamps re-adds with the
 			// original addedAt).
-			this.entries = this.entries.map((e) => (e.isin === body.entry.isin ? body.entry : e));
+			this.entries = this.entries.map((e) => (e.assetId === body.entry.assetId ? body.entry : e));
 		} catch (error) {
 			console.error('ignore add failed', error);
-			this.entries = this.entries.filter((e) => e.isin !== entry.isin);
+			this.entries = this.entries.filter((e) => e.assetId !== entry.assetId);
 			this.syncError = 'Saving your ignore list failed.';
 		}
 	}
 
 	private async persistRemove(entry: ListEntry): Promise<void> {
 		try {
-			const response = await fetch(`${LIST_URL}/${encodeURIComponent(entry.isin)}`, {
+			const response = await fetch(`${LIST_URL}/${encodeURIComponent(entry.assetId)}`, {
 				method: 'DELETE'
 			});
 			if (!response.ok) throw new Error(`ignore remove failed (${response.status})`);

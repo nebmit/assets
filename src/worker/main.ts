@@ -1,3 +1,4 @@
+import './env.js';
 import { parseSelection } from '../lib/server/sources/sec/selection.js';
 import type { JobOptions } from '../lib/server/pipeline/types.js';
 import { secReport } from '../lib/server/sources/sec/jobs.js';
@@ -6,7 +7,8 @@ import { transportStats } from '../lib/server/sources/sec/client.js';
 /**
  * Worker entrypoint.
  *   schedule            run the daily pre-market batch on a cron (default)
- *   run [--job=x|all] [--date=YYYY-MM-DD]   execute jobs once
+ *   run [--job=x|all] [--date=YYYY-MM-DD]   execute selected jobs to completion
+ *   backfill [--source=sec]              drain the selected backlog without a cycle budget
  *   report [--signal=x] [--date=..]          print surfaced signals
  *   migrate             apply pending DB migrations
  */
@@ -138,6 +140,7 @@ async function main(): Promise<void> {
 			await runMigrations();
 			console.log('migrations applied');
 			break;
+		case 'backfill':
 		case 'run':
 			await runMigrations();
 			if (!(await runPipeline(arg('job') ?? 'all', arg('date') ?? isoDate(new Date(), config().TZ))))
@@ -150,7 +153,7 @@ async function main(): Promise<void> {
 			await report();
 			break;
 		default:
-			throw new Error(`unknown command "${command}" (expected: schedule | run | report | migrate)`);
+			throw new Error(`unknown command "${command}" (expected: schedule | run | backfill | report | migrate)`);
 	}
 }
 

@@ -1,3 +1,4 @@
+import { adjustedPriceHistory } from '../assets/prices.js';
 import { sql } from 'drizzle-orm';
 import type { Db } from '../db/index.js';
 import { signalPerformance } from '../db/schema.js';
@@ -10,11 +11,6 @@ export const HORIZONS_DAYS = [30, 91, 182] as const;
 /** A forward close must exist within this many days before the horizon end. */
 const FWD_TOLERANCE_DAYS = 10;
 
-interface CloseRow {
-	instrument_id: number;
-	trade_date: string;
-	close: string;
-}
 
 /**
  * Pure core: forward returns per instrument plus the equal-weight universe
@@ -36,24 +32,17 @@ export function forwardReturns(
 	return { byInstrument, universeMean };
 }
 
-async function latestCloses(
-	db: Db,
-	instrumentIds: number[],
+function latestCloses(
+	history: Awaited<ReturnType<typeof adjustedPriceHistory>>,
 	onOrBefore: string,
 	after: string
-): Promise<Map<number, { close: number; tradeDate: string }>> {
-	if (instrumentIds.length === 0) return new Map();
-	const idList = sql.join(
-		instrumentIds.map((id) => sql`${id}`),
-		sql`, `
-	);
-	const rows = (await db.execute(sql`
-		select distinct on (instrument_id) instrument_id, trade_date, close
-		from eod_price
-		where instrument_id in (${idList}) and trade_date <= ${onOrBefore} and trade_date > ${after}
-		order by instrument_id, trade_date desc
-	`)) as unknown as CloseRow[];
-	return new Map(rows.map((r) => [r.instrument_id, { close: Number(r.close), tradeDate: r.trade_date }]));
+): Map<number, { close: number; tradeDate: string; currency: string; sourceRunId: number }> {
+	const out = new Map<number, { close: number; tradeDate: string; currency: string; sourceRunId: number }>();
+	for (const [id, rows] of history) {
+		const latest = rows.series.filter((r) => r.date > after && r.date <= onOrBefore).at(-1);
+		if (latest) out.set(id, { close: latest.close, tradeDate: latest.date, currency: rows.currency, sourceRunId: rows.sourceRunId });
+	}
+	return out;
 }
 
 /**
@@ -99,8 +88,9 @@ export async function runPerformance(db: Db, runDate: string): Promise<JobStats>
 			const ids = universeIds.map((r) => r.instrument_id);
 
 			const horizonEnd = addDays(run.run_date, horizon);
-			const base = await latestCloses(db, ids, run.run_date, addDays(run.run_date, -FWD_TOLERANCE_DAYS));
-			const fwd = await latestCloses(db, ids, horizonEnd, addDays(horizonEnd, -FWD_TOLERANCE_DAYS));
+			const history = await adjustedPriceHistory(db, ids, horizonEnd, runDate);
+			const base = latestCloses(history, run.run_date, addDays(run.run_date, -FWD_TOLERANCE_DAYS));
+			const fwd = latestCloses(history, horizonEnd, addDays(horizonEnd, -FWD_TOLERANCE_DAYS));
 			const { byInstrument, universeMean } = forwardReturns(
 				new Map([...base].map(([id, row]) => [id, row.close])),
 				new Map([...fwd].map(([id, row]) => [id, row.close]))
@@ -114,7 +104,7 @@ export async function runPerformance(db: Db, runDate: string): Promise<JobStats>
 				return [
 					{
 						signalId: p.signal_id,
-						horizonDays: horizon,
+						horizonDays: horizon, currency: baseRow.currency, returnBasis: 'split_adjusted_native_price_return', sourceRunId: baseRow.sourceRunId,
 						baseDate: baseRow.tradeDate,
 						baseClose: baseRow.close.toString(),
 						fwdDate: fwdRow.tradeDate,

@@ -1,5 +1,7 @@
-import { eq, isNull, sql } from 'drizzle-orm';
-import { eodPrice, fundamental, indexMembership, instrument } from '../../db/schema.js';
+import { storePrices } from '../../assets/observations.js';
+import { bfMembers } from '../../assets/listings.js';
+import { fingerprint } from '../../assets/evidence.js';
+import { fundamental } from '../../db/schema.js';
 import { METRICS, type Metric } from '../../fundamentals/metrics.js';
 import type { Job, JobStats } from '../../pipeline/types.js';
 import { isoDate } from '../../util.js';
@@ -54,11 +56,7 @@ export const snapshotJob: Job = {
 	name: 'bf_snapshot',
 	source: BF_SOURCE,
 	async run(ctx): Promise<JobStats> {
-		const members = await ctx.db
-			.selectDistinct({ id: instrument.id, isin: instrument.isin, issuerId: instrument.issuerId })
-			.from(instrument)
-			.innerJoin(indexMembership, eq(indexMembership.instrumentId, instrument.id))
-			.where(isNull(indexMembership.validTo));
+		const members = await bfMembers(ctx.db);
 		const byIsin = new Map(members.map((m) => [m.isin, m]));
 
 		let fundamentalRows = 0;
@@ -78,34 +76,32 @@ export const snapshotJob: Job = {
 						.insert(fundamental)
 						.values({
 							issuerId: member.issuerId,
+							instrumentId: member.id,
+							observedAt: new Date(),
+							sourceRecordId: fingerprint([BF_SOURCE, member.id, metric, ctx.runDate, value, new Date().toISOString()]),
 							metric,
 							value: value.toString(),
-							currency: 'EUR',
+							currency: metric === METRICS.priceToBook ? null : 'EUR',
+							unit: metric === METRICS.priceToBook ? 'pure' : metric === METRICS.marketCap ? 'EUR' : 'EUR/shares',
 							periodType: 'LATEST',
 							periodEnd: ctx.runDate,
 							publishedDate: ctx.runDate,
 							source: 'boerse_frankfurt'
 						})
-						.onConflictDoUpdate({
-							target: [fundamental.issuerId, fundamental.metric, fundamental.periodEnd, fundamental.source],
-							targetWhere: sql`${fundamental.source} in ('boerse_frankfurt', 'esef')`,
-							set: { value: value.toString(), publishedDate: ctx.runDate }
-						});
+						.onConflictDoNothing();
 					fundamentalRows++;
 				}
 				if (mapped.close) {
 					// price_history backfill rows (with OHLC/volume) take precedence
-					const inserted = await ctx.db
-						.insert(eodPrice)
-						.values({
-							instrumentId: member.id,
+					const inserted = await storePrices(ctx.db, [{
+							listingId: member.listingId,
 							tradeDate: mapped.close.tradeDate,
 							close: mapped.close.close.toString(),
+							source: BF_SOURCE, feed: 'XETR', observedAt: new Date(),
+							sourceRecordId: fingerprint([BF_SOURCE, member.listingId, mapped.close]),
 							currency: 'EUR'
-						})
-						.onConflictDoNothing()
-						.returning({ instrumentId: eodPrice.instrumentId });
-					closesInserted += inserted.length;
+						}]);
+					closesInserted += inserted;
 				}
 			}
 		}

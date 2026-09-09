@@ -10,7 +10,7 @@ import { buildMcpServer, type McpDeps } from './server.js';
 const RUN_DATE = '2026-07-01';
 
 const alphaRow: EnrichedReportRow = {
-	shortSellers: unknownShortSellers(),
+	coverage: {}, shortSellers: unknownShortSellers(), assetId: '00000000-0000-4000-8000-000000000001', currency: 'EUR',
 	rank: 1,
 	ticker: 'AAA',
 	isin: 'DE0000000001',
@@ -21,6 +21,7 @@ const alphaRow: EnrichedReportRow = {
 	superSector: 'Industrials',
 	sectorPeersFiring: 2,
 	fundamentals: {
+		currency: 'EUR',
 		price: 82.4,
 		priceDate: RUN_DATE,
 		ytdReturn: -0.12,
@@ -63,13 +64,13 @@ const alphaRow: EnrichedReportRow = {
 	insiders: [
 		{
 			party: 'Armin Example',
-			role: 'executive_board',
+			role: 'executive',
 			roleWeight: 1,
 			side: 'buy',
-			dealingType: 'open_market_purchase',
-			instrumentType: 'Aktie',
-			countedInSignal: true,
-			amountEur: 250_000,
+			dealingType: 'purchase',
+			instrumentType: 'common_share',
+			countedInSignal: true, currencyStatus: 'explicit', qualificationReason: null, source: 'bafin', url: null, owners: [],
+			currency: 'EUR', amount: 250_000,
 			price: 81.7,
 			transactionDate: '2026-06-25',
 			publishedDate: '2026-06-26',
@@ -78,13 +79,13 @@ const alphaRow: EnrichedReportRow = {
 	],
 	news: {
 		windowCount: 4,
-		latest: [{ headline: 'Alpha AG wins defence order', publishedAt: '2026-06-30T08:00:00.000Z' }]
+		latest: [{ source: 'boerse_frankfurt', newsType: 'Corporate', form: null, accession: null, url: null, headline: 'Alpha AG wins defence order', publishedAt: '2026-06-30T08:00:00.000Z' }]
 	}
 };
 
 /** Pre-enrichment row shape (older run / instrument without data): everything nullable is null. */
 const betaRow: EnrichedReportRow = {
-	shortSellers: unknownShortSellers(),
+	coverage: {}, shortSellers: unknownShortSellers(), assetId: '00000000-0000-4000-8000-000000000001', currency: 'EUR',
 	rank: 2,
 	ticker: null,
 	isin: 'DE0000000002',
@@ -111,7 +112,7 @@ function makeReport(slug: string, top: number): EnrichedSignalReport {
 }
 
 const detailFixture: IssuerDetail = {
-	shortSellers: unknownShortSellers(),
+	coverage: {}, shortSellers: unknownShortSellers(), assetId: '00000000-0000-4000-8000-000000000001', currency: 'EUR',
 	isin: 'DE0000000001',
 	ticker: 'AAA',
 	name: 'Alpha AG',
@@ -129,21 +130,21 @@ const detailFixture: IssuerDetail = {
 	insiderFollowThrough: [
 		{
 			party: 'Armin Example',
-			role: 'executive_board',
+			role: 'executive',
 			buyCount: 2,
 			buys: [
-				{ transactionDate: '2026-03-02', amountEur: 100_000, fwdReturn91d: 0.08 },
-				{ transactionDate: '2026-06-25', amountEur: 250_000, fwdReturn91d: null }
+				{ transactionDate: '2026-03-02', currency: 'EUR', amount: 100_000, fwdReturn91d: 0.08 },
+				{ transactionDate: '2026-06-25', currency: 'EUR', amount: 250_000, fwdReturn91d: null }
 			]
 		}
 	],
-	news: [{ headline: 'Alpha AG wins defence order', publishedAt: '2026-06-30T08:00:00.000Z' }]
+	news: [{ source: 'boerse_frankfurt', newsType: 'Corporate', form: null, accession: null, url: null, headline: 'Alpha AG wins defence order', publishedAt: '2026-06-30T08:00:00.000Z' }]
 };
 
 const happyDeps: McpDeps = {
 	latestRunDate: async () => RUN_DATE,
 	signalReport: async (slug, runDate, top) => (runDate === RUN_DATE ? makeReport(slug, top) : null),
-	issuerDetail: async (isin) => (isin === detailFixture.isin ? detailFixture : null)
+	issuerDetail: async (assetId) => (assetId === detailFixture.assetId ? detailFixture : null)
 };
 
 async function connect(deps: McpDeps): Promise<Client> {
@@ -194,7 +195,7 @@ describe('mcp server', () => {
 			expect(rowProperties).toHaveProperty(field);
 		}
 		const detail = tools.find((t) => t.name === 'issuer_detail');
-		expect(detail?.inputSchema.properties).toHaveProperty('isin');
+		expect(detail?.inputSchema.properties).toHaveProperty('assetId');
 		expect(detail?.outputSchema?.properties).toHaveProperty('insiderFollowThrough');
 		expect(detail?.outputSchema?.properties).toHaveProperty('shortSellers');
 	});
@@ -213,7 +214,7 @@ describe('mcp server', () => {
 		expect(report.top).toHaveLength(2);
 		expect(report.top[0].summary).toBe('3 insiders bought €250k in 30d');
 		expect(report.top[0]).toMatchObject({
-			insiders: [{ party: 'Armin Example', dealingType: 'open_market_purchase' }],
+			insiders: [{ party: 'Armin Example', dealingType: 'purchase' }],
 			fundamentals: { marketCap: 4_200_000_000 },
 			components: { insiderConviction: { boughtIntoDecline: true } },
 			sectorPeersFiring: 2
@@ -260,7 +261,7 @@ describe('mcp server', () => {
 		const client = await connect(happyDeps);
 		const result = await client.callTool({
 			name: 'issuer_detail',
-			arguments: { isin: 'DE0000000001' }
+			arguments: { assetId: detailFixture.assetId }
 		});
 		expect(result.isError).toBeFalsy();
 		const detail = result.structuredContent as IssuerDetail;
@@ -282,7 +283,7 @@ describe('mcp server', () => {
 				return detailFixture;
 			}
 		});
-		await client.callTool({ name: 'issuer_detail', arguments: { isin: 'DE0000000001' } });
+		await client.callTool({ name: 'issuer_detail', arguments: { assetId: detailFixture.assetId } });
 		expect(seen).toBe(RUN_DATE);
 	});
 
@@ -290,10 +291,10 @@ describe('mcp server', () => {
 		const client = await connect(happyDeps);
 		const result = await client.callTool({
 			name: 'issuer_detail',
-			arguments: { isin: 'DE0000000099' }
+			arguments: { assetId: '00000000-0000-4000-8000-000000000099' }
 		});
 		expect(result.isError).toBe(true);
-		expect(JSON.stringify(result.content)).toContain('DE0000000099');
+		expect(JSON.stringify(result.content)).toContain('00000000-0000-4000-8000-000000000099');
 	});
 
 	it('rejects a malformed ISIN before the query runs', async () => {
@@ -305,9 +306,9 @@ describe('mcp server', () => {
 				return detailFixture;
 			}
 		});
-		const result = await client.callTool({ name: 'issuer_detail', arguments: { isin: 'rheinmetall' } });
+		const result = await client.callTool({ name: 'issuer_detail', arguments: { assetId: 'rheinmetall' } });
 		expect(result.isError).toBe(true);
-		expect(JSON.stringify(result.content)).toContain('ISIN');
+		expect(JSON.stringify(result.content)).toContain('assetId');
 		expect(queried).toBe(false);
 	});
 
