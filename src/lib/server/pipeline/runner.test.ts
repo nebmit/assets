@@ -85,3 +85,11 @@ describe('combined pipeline execution', () => {
 		expect(lock.query.end).toHaveBeenCalledOnce();
 	});
 });
+
+it('publishes healthy snapshots after item-level SEC failures', async () => {
+	lock.query.mockResolvedValue([{ acquired: true }]);
+	const signals = vi.fn(async () => ({}));
+	const results = await runJobs(db, [job('sec_fundamentals', async () => ({ failed: 1, processed: 100 })), job('signals', signals, 'internal')], '2026-09-09');
+	expect(results.map((r) => r.ok)).toEqual([false, true]);
+	expect(signals).toHaveBeenCalledOnce();
+});

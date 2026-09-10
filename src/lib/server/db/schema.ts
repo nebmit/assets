@@ -343,14 +343,15 @@ export const signalDefinition = pgTable('screen', {
 
 export const signalRun = pgTable('signal_run', {
 	id: serial('id').primaryKey(),
-	runDate: date('run_date').notNull().unique(),
+	runDate: date('run_date').notNull(),
+	isCurrent: boolean('is_current').notNull().default(true),
 	status: runStatusEnum('status').notNull().default('running'),
 	universeSize: integer('universe_size'),
 	cutoffAt: timestamp('cutoff_at', { withTimezone: true }),
 	definitionVersions: jsonb('definition_versions').$type<Record<string, unknown>>(),
 	startedAt: timestamp('started_at', { withTimezone: true }).notNull().defaultNow(),
 	finishedAt: timestamp('finished_at', { withTimezone: true })
-});
+}, (t) => [uniqueIndex('signal_run_current_date').on(t.runDate).where(sql`${t.isCurrent} = true`)]);
 
 export const signal = pgTable(
 	'signal',
@@ -495,3 +496,34 @@ export const assetSnapshot = pgTable('asset_snapshot', {
 	instrumentId: integer('instrument_id').notNull().references(() => instrument.id),
 	payload: jsonb('payload').notNull()
 }, (t) => [primaryKey({ columns: [t.runId, t.instrumentId] })]);
+
+/** Immutable successful extraction; retries are stored separately from source evidence. */
+export const secExtraction = pgTable('sec_extraction', {
+	id: serial('id').primaryKey(),
+	filingId: integer('filing_id').notNull().references(() => sourceFiling.id),
+	packageHash: text('package_hash').notNull(),
+	parserVersion: text('parser_version').notNull(),
+	configHash: text('config_hash').notNull(),
+	manifest: jsonb('manifest').$type<import('../sources/sec/xbrl/types.js').FilingPackage>().notNull(),
+	artifact: jsonb('artifact').$type<import('../sources/sec/client.js').Evidence>().notNull(),
+	diagnostics: jsonb('diagnostics').$type<import('../sources/sec/xbrl/types.js').XbrlArtifact['diagnostics']>().notNull(),
+	observedAt: timestamp('observed_at', { withTimezone: true }).notNull(),
+	processedAt: timestamp('processed_at', { withTimezone: true }).notNull().defaultNow()
+}, (t) => [uniqueIndex('sec_extraction_identity').on(t.filingId, t.packageHash, t.parserVersion, t.configHash)]);
+
+export const secProcessing = pgTable('sec_processing', {
+	configHash: text('config_hash').notNull(),
+	filingId: integer('filing_id').notNull().references(() => sourceFiling.id),
+	inputHash: text('input_hash').notNull(),
+	parserVersion: text('parser_version').notNull(),
+	resolverVersion: integer('resolver_version').notNull(),
+	stage: text('stage').notNull(),
+	status: text('status').notNull(),
+	attempts: integer('attempts').notNull().default(0),
+	retryAt: timestamp('retry_at', { withTimezone: true }),
+	reasonCode: text('reason_code'),
+	error: text('error'),
+	extractionId: integer('extraction_id').references(() => secExtraction.id),
+	manifest: jsonb('manifest').$type<import('../sources/sec/xbrl/types.js').FilingPackage>(),
+	updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow()
+}, (t) => [primaryKey({ columns: [t.filingId, t.inputHash, t.parserVersion, t.resolverVersion, t.configHash] })]);

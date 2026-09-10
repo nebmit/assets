@@ -9,7 +9,7 @@ function action(overrides: Partial<Action> = {}): Action {
 	return { id: 1, instrumentId: 1, source: 'alpaca', externalId: 'split', type: 'forward_splits', exDate: '2026-03-01', ratio: '2', amount: null, currency: null, observedAt: new Date('2026-03-01'), sourceRecordId: 'split', evidence: {}, qualification: 'qualified', metadata: {}, ...overrides };
 }
 function resolve(facts: Fact[], overrides: Partial<Parameters<typeof resolveFinancials>[0]> = {}) {
-	return resolveFinancials({ facts, instrumentId: 1, singleClass: true, currency: 'USD', close: 20, runDate: '2026-03-05', actions: [], actionsComplete: true, ...overrides });
+	return resolveFinancials({ facts, instrumentId: 1, scope: { earnings: 'issuer', classes: ['issuer'], inventoryComplete: true }, currency: 'USD', close: 20, runDate: '2026-03-05', actions: [], actionsComplete: true, ...overrides });
 }
 const annual = () => [fact('net_income_common', '1000', '2025-01-01', '2025-12-31'), fact('weighted_average_shares_basic', '100', '2025-01-01', '2025-12-31')];
 
@@ -36,7 +36,7 @@ describe('qualified financial snapshots', () => {
 		expect(resolve(rows, { runDate: '2025-11-15' }).eps.value).toBe(12);
 	});
 	it('requires class, currency and denominator compatibility', () => {
-		expect(resolve(annual(), { singleClass: false }).eps.value).toBeNull();
+		expect(resolve(annual(), { scope: { earnings: null, classes: [], inventoryComplete: false } }).eps.value).toBeNull();
 		expect(resolve(annual(), { currency: 'EUR' }).eps.value).toBeNull();
 		const rows = annual(); rows[1].reportingBasis = 'diluted'; expect(resolve(rows).eps.value).toBeNull();
 	});
@@ -52,8 +52,10 @@ describe('qualified financial snapshots', () => {
 	});
 	it('selects restatements deterministically without mutating observations', () => {
 		const rows = annual(); const revision = { ...rows[0], id: 99, value: '1500', filingId: 2, publishedDate: '2026-02-15' };
-		expect(resolve([...rows, revision]).eps.value).toBe(15);
-		expect(resolve([revision, ...rows]).eps.value).toBe(15);
+		expect(resolve([...rows, revision]).eps.value).toBeNull();
+		const revisedShares = { ...rows[1], id: 100, filingId: 2, publishedDate: '2026-02-15' };
+		expect(resolve([...rows, revision, revisedShares]).eps.value).toBe(15);
+		expect(resolve([revision, revisedShares, ...rows]).eps.value).toBe(15);
 		expect(rows[0].value).toBe('1000');
 	});
 	it('keeps contradictory concepts explicitly conflicting', () => {
@@ -71,9 +73,9 @@ describe('qualified financial snapshots', () => {
 	it('keeps unsupported multi-class equity allocations null', () => {
 		const rows = [fact('shares_outstanding', '100', null, '2025-12-31', { instrumentId: 1 }), fact('common_equity', '1000', null, '2025-12-31')];
 		expect(resolve(rows).pb.value).toBe(2);
-		expect(resolve(rows, { singleClass: false }).pb.value).toBeNull();
+		expect(resolve(rows, { scope: { earnings: null, classes: [], inventoryComplete: false } }).pb.value).toBeNull();
 		rows[1].instrumentId = 1;
-		expect(resolve(rows, { singleClass: false }).pb.value).toBe(2);
+		expect(resolve(rows, { scope: { earnings: null, classes: [], inventoryComplete: false } }).pb.value).toBeNull();
 	});
 	it('keeps valuation on the quote share basis before the first post-split close', () => {
 		const rows = [...annual(), fact('shares_outstanding', '100', null, '2025-12-31')];
@@ -106,7 +108,7 @@ describe('SEC common attribution', () => {
 		expect(resolve(rows).eps.value).toBe(10.005);
 		rows[0].value = '1000.51'; expect(resolve(rows).eps.value).toBeNull();
 		expect(resolve(parent().slice(0, 2)).eps.value).toBeNull();
-		expect(resolve(parent(), { singleClass: false }).eps.value).toBeNull();
+		expect(resolve(parent(), { scope: { earnings: null, classes: [], inventoryComplete: false } }).eps.value).toBeNull();
 	});
 	it('does not bypass explicit common income or preferred capital', () => {
 		const common = fact('net_income_common', '500', '2025-01-01', '2025-12-31');
@@ -188,4 +190,30 @@ describe('reported outstanding-share precision', () => {
 		const rows = ['EntityCommonStockSharesOutstanding', 'CommonStockSharesOutstanding'].map((concept, i) => fact('shares_outstanding', String(1000 + i), null, '2025-12-31', { metadata: { concept } }));
 		expect(resolve(rows).marketCap.state).toBe('conflicting');
 	});
+});
+
+describe('whole-company valuation', () => {
+	it('sums listed classes and refuses partial capitalization', () => {
+		const rows = ['A', 'B'].map((scope, i) => fact('shares_outstanding', String((i + 1) * 100), null, '2025-12-31', { metadata: { scope } }));
+		const prices = ['A', 'B'].map((classId) => ({ classId, close: 20, priceDate: '2026-03-05', actions: [], actionsComplete: true, symbol: classId }));
+		const options = { scope: { earnings: 'A', classes: ['A', 'B'], inventoryComplete: true }, classPrices: prices };
+		expect(resolve(rows, options).marketCap.value).toBe(6000);
+		expect(resolve(rows, { ...options, classPrices: prices.slice(0, 1) }).marketCap).toMatchObject({ value: null, reasonCode: 'unlisted_class_valuation_unavailable' });
+	});
+	it('does not publish old earnings when the latest financial period is incomplete', () => {
+		expect(resolve(annual(), { latestReportEnd: '2026-01-31' }).eps).toMatchObject({ value: null, reasonCode: 'latest_period_missing' });
+	});
+	it('proves comparative split restatement and adjusts its denominator only once', () => {
+		const rows = annual();
+		rows[1].metadata = { decimals: 'INF' };
+		const revised = rows.map((f) => ({ ...f, id: f.id + 100, filingId: 2, publishedDate: '2026-03-03', value: f.metric === 'weighted_average_shares_basic' ? '200' : f.value, metadata: { decimals: 'INF' } }));
+		expect(resolve([...rows, ...revised], { actions: [action()] }).eps.value).toBe(5);
+	});
+});
+
+it('requires noncontrolling and temporary claims to be resolved for company book value', () => {
+	const rows = [fact('shares_outstanding', '100', null, '2025-12-31'), fact('equity', '1100', null, '2025-12-31', { reportingBasis: 'including_noncontrolling' }), fact('noncontrolling_equity', '100', null, '2025-12-31'), fact('preferred_equity', '0', null, '2025-12-31')];
+	expect(resolve(rows).pb.value).toBe(2);
+	expect(resolve(rows.filter((r) => r.metric !== 'noncontrolling_equity')).pb.value).toBeNull();
+	expect(resolve([...rows, fact('temporary_equity', '50', null, '2025-12-31')]).pb.value).toBeNull();
 });

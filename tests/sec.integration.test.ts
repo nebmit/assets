@@ -3,7 +3,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { createDb, migrateDb, type DbHandle } from '../src/lib/server/db/index.js';
 import { fundamental, insiderTransaction, issuer, instrument, listing, indexMembership, newsItem, sourceFiling, ingestionRun } from '../src/lib/server/db/schema.js';
-import { persistFacts, persistFiling, rememberFiling } from '../src/lib/server/sources/sec/store.js';
+import { recordCompanyFactsComparison, persistFiling, rememberFiling } from '../src/lib/server/sources/sec/store.js';
 import { buildContext } from '../src/lib/server/signals/context.js';
 import { issuerDetail } from '../src/lib/server/issuer/detail.js';
 import { runJob } from '../src/lib/server/pipeline/runner.js';
@@ -49,7 +49,7 @@ describe.skipIf(!url)('SEC persistence and product isolation', () => {
 		const context = await buildContext(handle.db,'2026-08-10'); expect(context.instruments[0].insiderTx).toHaveLength(0);
 		const detail = await issuerDetail(handle.db,assetId,ctx.runDate); expect(detail?.insiderHistory.every((t) => !t.countedInSignal)).toBe(true); expect(detail?.news).toHaveLength(0);
 	});
-	it('preserves financial periods and revisions without leaking SEC values', async () => {
+	it('keeps company facts as comparison evidence without leaking unvalidated SEC values', async () => {
 		const acc = '0000789019-26-000150';
 		await rememberFiling(ctx,{accession:acc,cik:entity.cik!,form:'10-K',filedDate:'2026-08-06',acceptedAt:'2026-08-06T22:00:00Z',url:'https://www.sec.gov/fixture'},entity.id);
 		const [filing] = await handle.db.select().from(sourceFiling).where(eq(sourceFiling.externalId,acc));
@@ -59,10 +59,10 @@ describe.skipIf(!url)('SEC persistence and product isolation', () => {
 			{val:250,start:'2026-04-01',end:'2026-06-30',accn:acc,form:'10-K',filed:'2026-08-06'}
 		]}}}}};
 		const evidence = {hash:'facts1',path:'/facts',url:'https://data.sec.gov/fixture',observedAt:'2026-09-06T10:00:00Z'};
-		await persistFacts(ctx,entity,data,evidence,'2022-01-01'); await persistFacts(ctx,entity,data,evidence,'2022-01-01');
-		expect(await handle.db.select().from(fundamental).where(eq(fundamental.source,'sec'))).toHaveLength(2);
-		await persistFacts(ctx,entity,data,{...evidence,hash:'facts2'},'2022-01-01');
-		expect(await handle.db.select().from(fundamental).where(eq(fundamental.source,'sec'))).toHaveLength(4);
+		await recordCompanyFactsComparison(ctx,entity,data,evidence,'2022-01-01'); await recordCompanyFactsComparison(ctx,entity,data,evidence,'2022-01-01');
+		expect(await handle.db.select().from(fundamental).where(eq(fundamental.source,'sec'))).toHaveLength(0);
+		await recordCompanyFactsComparison(ctx,entity,data,{...evidence,hash:'facts2'},'2022-01-01');
+		expect(await handle.db.select().from(fundamental).where(eq(fundamental.source,'sec'))).toHaveLength(0);
 		expect((await buildContext(handle.db,ctx.runDate)).instruments[0].epsBasic).toBe(6);
 		expect((await issuerDetail(handle.db,assetId,ctx.runDate))?.epsBasicHistory).toHaveLength(1);
 	});

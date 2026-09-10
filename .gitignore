@@ -24,3 +24,5 @@ vite.config.ts.timestamp-*
 
 # Local data (raw source archives)
 /data
+/.venv-xbrl
+__pycache__/

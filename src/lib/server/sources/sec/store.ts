@@ -1,13 +1,10 @@
-import { listedShareClasses, commonClassMembers, isUndesignatedCommonStockTitle } from './shareClasses.js';
-import { parseInlineFacts, readPrimaryDocument } from './inlineFacts.js';
-import { daysBetween } from '../../util.js';
 import { parseFinancialHeader } from './filingHeader.js';
 import { and, eq, sql } from 'drizzle-orm';
 import type { JobContext } from '../../pipeline/types.js';
 import { fundamental, insiderTransaction, issuer, instrument, listing, newsItem, sourceFiling } from '../../db/schema.js';
 import { hash, type Evidence } from './client.js';
 import { acceptanceTime, ownershipForm, type FilingRecord } from './parse.js';
-import { normalizeFacts, SEC_NORMALIZATION_VERSION } from './facts.js';
+import { normalizeFacts } from './facts.js';
 import { parseOwnership } from './ownership.js';
 
 export type Filing = typeof sourceFiling.$inferSelect;
@@ -115,72 +112,17 @@ export function financialDocuments(filings: Filing[], runDate: string): Filing[]
 	return [...selected.values()];
 }
 
-export async function persistFacts(ctx: JobContext, entity: typeof issuer.$inferSelect, input: unknown, evidence: Evidence, cutoff: string): Promise<{ missingFilings: number }> {
-	const result = normalizeFacts(input, entity.cik!, evidence.hash, cutoff);
-	const [currentEntity] = await ctx.db.select().from(issuer).where(eq(issuer.id, entity.id));
-	const currentFacts = currentEntity.secMetadata?.factsEvidence as Evidence | undefined;
-	const factsRevision = currentFacts?.hash === evidence.hash ? String(currentEntity.secMetadata?.factsRevision ?? currentFacts.observedAt) : evidence.observedAt;
-	const filings = await ctx.db.select().from(sourceFiling).where(and(eq(sourceFiling.source, 'sec'), eq(sourceFiling.issuerId, entity.id)));
-	const byAccession = new Map(filings.map((f) => [f.externalId, f]));
-	let missingFilings = 0, normalizedFacts = 0;
-	await ctx.db.transaction(async (db) => {
-		const observations: (typeof fundamental.$inferInsert)[] = [];
-		async function flush() {
-			for (let offset = 0; offset < observations.length; offset += 500) await db.insert(fundamental).values(observations.slice(offset, offset + 500)).onConflictDoNothing();
-			observations.length = 0;
-		}
-		for (const fact of result.facts) {
-			if (fact.filedDate > ctx.runDate) continue;
-			const filing = byAccession.get(fact.accession);
-			if (!filing || filing.status !== 'processed') { missingFilings++; continue; }
-			const time = publicTime(filing);
-			normalizedFacts++;
-			observations.push({ issuerId: entity.id, metric: fact.metric, value: fact.value,
-				currency: fact.currency, periodType: fact.periodType, periodStart: fact.periodStart, periodEnd: fact.periodEnd,
-				unit: fact.unit, reportingBasis: fact.reportingBasis, source: 'sec', sourceRecordId: hash(JSON.stringify([fact.sourceRecordId, factsRevision])),
-				filingId: filing.id, publishedAt: time, publishedDate: time.toISOString().slice(0, 10), observedAt: new Date(evidence.observedAt),
-				qualification: fact.metadata.comparisonStatus === 'conflicting_source_values' ? 'conflicting' : 'unqualified', qualificationReason: fact.metadata.comparisonStatus === 'conflicting_source_values' ? 'Competing source values disagree' : 'requires_snapshot_qualification', metadata: { ...fact.metadata, shareBasisDate: filing.reportDate ?? fact.periodEnd, evidence }
-			});
-		}
-		await flush();
-		const securities = await db.select().from(instrument).where(eq(instrument.issuerId, entity.id));
-		const quotes = await db.select({ assetId: listing.instrumentId, symbol: listing.symbol, from: listing.validFrom, to: listing.validTo }).from(listing).innerJoin(instrument, eq(instrument.id, listing.instrumentId)).where(eq(instrument.issuerId, entity.id));
-		for (const filing of financialDocuments(filings, ctx.runDate)) {
-			const document = (filing.metadata.documents as Evidence[] | undefined)?.find((e) => e.hash === filing.metadata.currentHash);
-			if (!document) { missingFilings++; continue; }
-			if (filing.metadata.inlineParsedHash === document.hash && filing.metadata.inlineNormalizationVersion === SEC_NORMALIZATION_VERSION) continue;
-			const original = await readPrimaryDocument(document.path, filing.form);
-			if (original === null) { missingFilings++; continue; }
-			const inlineFacts = parseInlineFacts(original);
-			const coverClasses = listedShareClasses(original);
-			const commonMembers = commonClassMembers(inlineFacts.map((f) => f.classMember).filter((m): m is string => m !== null));
-			for (const fact of inlineFacts) {
-				if (fact.periodEnd < cutoff) continue;
-				const classMatch = fact.classMember ? /Class([A-Z0-9]+?)(?:Common|Stock|Member)/i.exec(fact.classMember)?.[1]?.toLowerCase() : null;
-				const matches = classMatch ? securities.filter((s) => {
-					const labels = [s.securityClass ?? '', ...quotes.filter((q) => q.assetId === s.id && q.from <= ctx.runDate && (q.to === null || q.to > filing.filedDate)).map((q) => coverClasses.get(q.symbol ?? '') ?? '')];
-					return labels.some((label) => new RegExp(`class\\s+${classMatch}\\b`, 'i').test(label));
-				}) : fact.classMember && /(?:^|:)CommonStockMember$/.test(fact.classMember) && commonMembers.length === 1 && securities.length === 1 ? securities : fact.classMember === 'us-gaap:CommonStockMember' ? securities.filter((s) => quotes.some((q) => q.assetId === s.id && q.from <= ctx.runDate && (q.to === null || q.to > filing.filedDate) && isUndesignatedCommonStockTitle(coverClasses.get(q.symbol ?? '') ?? ''))) : [];
-				if (fact.classMember && matches.length !== 1) continue;
-				const days = fact.periodStart ? daysBetween(fact.periodStart, fact.periodEnd) + 1 : 0;
-				const periodType = !days ? 'INSTANT' : days >= 350 && days <= 380 ? 'FY' : days >= 70 && days <= 110 ? 'Q' : days >= 150 && days <= 210 ? 'YTD_6M' : days >= 240 && days <= 300 ? 'YTD_9M' : 'UNSUPPORTED';
-				if (periodType === 'UNSUPPORTED') continue;
-				const time = publicTime(filing);
-				observations.push({ issuerId: entity.id, instrumentId: matches[0]?.id ?? null, source: 'sec', sourceRecordId: hash(JSON.stringify([SEC_NORMALIZATION_VERSION, document.hash, fact])), filingId: filing.id,
-					metric: fact.metric, value: fact.value, currency: fact.currency, unit: fact.unit, reportingBasis: fact.reportingBasis, periodStart: fact.periodStart, periodEnd: fact.periodEnd, periodType,
-					publishedAt: time, publishedDate: time.toISOString().slice(0, 10), observedAt: new Date(), qualification: 'unqualified', qualificationReason: 'requires_snapshot_qualification',
-					metadata: { normalizationVersion: SEC_NORMALIZATION_VERSION, decimals: fact.decimals, precisionBasis: 'reported', classMember: fact.classMember, shareBasisDate: filing.reportDate ?? fact.periodEnd, concept: fact.concept, evidence: document } });
-			}
-			await flush();
-			await db.update(sourceFiling).set({ metadata: { ...filing.metadata, inlineParsedHash: document.hash, inlineNormalizationVersion: SEC_NORMALIZATION_VERSION, reportedShareClasses: [...new Set(inlineFacts.map((f) => f.classMember).filter(Boolean))] } }).where(eq(sourceFiling.id, filing.id));
-		}
-
-		await updateIssuerMetadata({ ...ctx, db: db as unknown as JobContext['db'] }, entity.id, {
-			factsNormalizationVersion: SEC_NORMALIZATION_VERSION, factsRevision, factsEvidence: evidence, factsCheckedAt: new Date().toISOString(), factsStatus: missingFilings ? 'pending_filings' : 'processed', factsError: null,
-			factIssues: { ...result.issues, missing_filing_evidence: missingFilings }, normalizedFacts
-		});
-	});
-	return { missingFilings };
+/** Comparison evidence cannot create or override authoritative filing observations. */
+export async function recordCompanyFactsComparison(ctx: JobContext, entity: typeof issuer.$inferSelect, input: unknown, evidence: Evidence, cutoff: string): Promise<void> {
+	const comparison = normalizeFacts(input, entity.cik!, evidence.hash, cutoff);
+	const rows = await ctx.db.select({ fact: fundamental, accession: sourceFiling.externalId }).from(fundamental).innerJoin(sourceFiling, eq(sourceFiling.id, fundamental.filingId)).where(and(eq(fundamental.issuerId, entity.id), eq(fundamental.source, 'sec'), sql`${fundamental.metadata}->>'scope' = 'issuer'`));
+	let matched = 0, different = 0;
+	for (const observed of comparison.facts) {
+		const candidates = rows.filter((r) => r.accession === observed.accession && r.fact.metric === observed.metric && r.fact.periodStart === observed.periodStart && r.fact.periodEnd === observed.periodEnd && r.fact.unit === observed.unit);
+		if (!candidates.length) continue;
+		if (candidates.some((r) => r.fact.value === observed.value)) matched++; else different++;
+	}
+	await updateIssuerMetadata(ctx, entity.id, { factsEvidence: evidence, comparisonIssues: comparison.issues, companyFactsComparison: { matched, different, normalized: comparison.facts.length, checkedAt: new Date().toISOString() } });
 }
 
 function itemLabel(item: string): string {

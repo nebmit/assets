@@ -11,7 +11,7 @@ import { sleep } from '../../util.js';
 
 const userAgent = 'Assets SEC Worker contact@timben.net';
 const limiter = new RateLimiter(200);
-const allowedHosts = new Set(['www.sec.gov', 'data.sec.gov', 'www.nasdaqtrader.com', 'www.ishares.com']);
+const allowedHosts = new Set(['www.sec.gov', 'data.sec.gov', 'www.nasdaqtrader.com', 'www.ishares.com', 'xbrl.sec.gov', 'xbrl.fasb.org', 'fasb.org', 'www.fasb.org', 'www.xbrl.org', 'xbrl.org', 'www.w3.org', 'xbrl.us']);
 export const transportStats = { requests: 0, bytes: 0 };
 export class SecAccessError extends Error {}
 export class SecTransportError extends Error {

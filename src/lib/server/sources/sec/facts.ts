@@ -17,6 +17,9 @@ export const conceptMappings = [
 	['weighted_average_shares_basic', 'WeightedAverageNumberOfSharesOutstandingBasic', 'basic'],
 	['weighted_average_shares_diluted', 'WeightedAverageNumberOfDilutedSharesOutstanding', 'diluted'],
 	['equity', 'StockholdersEquity', 'parent'],
+	['noncontrolling_equity', 'MinorityInterest', 'noncontrolling'],
+	['temporary_equity', 'TemporaryEquityCarryingAmountAttributableToParent', 'temporary_parent'],
+	['additional_paid_in_capital_total', 'AdditionalPaidInCapital', 'all_capital'],
 	['common_capital', 'CommonStocksIncludingAdditionalPaidInCapital', 'common_capital'],
 	['common_capital', 'CommonStockIncludingAdditionalPaidInCapital', 'common_capital'],
 	['common_stock_value', 'CommonStockValue', 'common_par'],
@@ -65,7 +68,7 @@ export function normalizeFacts(input: unknown, issuerCik: string, payloadHash: s
 				if (!/^(10-K|10-Q)(\/A)?$/.test(f.form) || f.end < cutoff) continue;
 				if (typeof f.val === 'number' && Number.isInteger(f.val) && !Number.isSafeInteger(f.val)) { issue(`unsafe_numeric_precision:${concept}`); continue; }
 				const decimal = new Decimal(f.val); if (!decimal.isFinite()) throw new Error('nonfinite financial value');
-				const instant = ['shares_outstanding', 'equity', 'preferred_equity', 'common_capital', 'common_stock_value', 'additional_paid_in_capital', 'retained_earnings', 'other_comprehensive_income', 'treasury_stock', 'preferred_shares_issued'].includes(metric);
+				const instant = ['shares_outstanding', 'equity', 'preferred_equity', 'common_capital', 'common_stock_value', 'additional_paid_in_capital', 'retained_earnings', 'other_comprehensive_income', 'treasury_stock', 'preferred_shares_issued', 'noncontrolling_equity', 'temporary_equity', 'additional_paid_in_capital_total'].includes(metric);
 				if (instant === Boolean(f.start)) { issue(`invalid_period:${concept}`); continue; }
 				let periodType = 'INSTANT';
 				if (f.start) {

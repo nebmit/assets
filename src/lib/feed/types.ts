@@ -1,3 +1,4 @@
+import type { MetricEvidence } from '$lib/server/assets/metricEvidence.js';
 import type { AssetLinks } from '../externalLinks.js';
 import type { ShortSellerAnalysis } from '../shortSellers.js';
 /**
@@ -67,7 +68,7 @@ export interface CardData {
 	mic: string;
 	source: string;
 	links: AssetLinks;
-	coverage: Record<string, { state: string; reason: string | null }>;
+	coverage: Record<string, { state: string; reason: string | null } & Partial<MetricEvidence>>;
 	wkn: string | null;
 	name: string;
 	sector: string | null;

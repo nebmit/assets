@@ -34,7 +34,7 @@ export async function loadFeed(db: Db): Promise<FeedPayload | null> {
 }
 
 async function loadFeedSnapshot(db: Db): Promise<FeedPayload | null> {
-	const runs = await db.select().from(signalRun).where(eq(signalRun.status, 'success')).orderBy(desc(signalRun.runDate)).limit(2);
+	const runs = await db.select().from(signalRun).where(and(eq(signalRun.status, 'success'), eq(signalRun.isCurrent, true))).orderBy(desc(signalRun.runDate)).limit(2);
 	const [run, previousRun] = runs; if (!run) return null;
 	const [snapshots, rows, prior] = await Promise.all([
 		savedSnapshots(db, run.runDate),

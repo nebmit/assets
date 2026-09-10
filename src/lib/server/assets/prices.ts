@@ -10,7 +10,7 @@ export async function adjustedPriceHistory(db: Db, instrumentIds: number[], thro
 	const rows = await db.selectDistinctOn([assetSnapshot.instrumentId], { instrumentId: assetSnapshot.instrumentId, sourceRunId: assetSnapshot.runId,
 		series: sql<PricePoint[]>`${assetSnapshot.payload}->'series'`, currency: sql<string>`${assetSnapshot.payload}->>'currency'` })
 		.from(assetSnapshot).innerJoin(signalRun, eq(signalRun.id, assetSnapshot.runId))
-		.where(and(inArray(assetSnapshot.instrumentId, instrumentIds), eq(signalRun.status, 'success'), lte(signalRun.runDate, observedThrough)))
+		.where(and(inArray(assetSnapshot.instrumentId, instrumentIds), and(eq(signalRun.status, 'success'), eq(signalRun.isCurrent, true)), lte(signalRun.runDate, observedThrough)))
 		.orderBy(assetSnapshot.instrumentId, desc(signalRun.runDate), desc(signalRun.id));
 	for (const row of rows) if (!out.has(row.instrumentId)) out.set(row.instrumentId, { series: row.series.filter((p) => p.date <= through), currency: row.currency, sourceRunId: row.sourceRunId });
 	return out;

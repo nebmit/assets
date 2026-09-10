@@ -1,3 +1,5 @@
+import type { MetricEvidence } from '$lib/server/assets/metricEvidence.js';
+import type { Financials } from '../assets/financials.js';
 import type { NewsRowView } from '../../feed/types.js';
 import { savedSnapshots, resolveSnapshots, runCutoff } from '../assets/snapshot.js';
 import { signalRun } from '../db/schema.js';
@@ -50,7 +52,8 @@ export interface PartyFollowThrough {
 }
 
 export interface IssuerDetail {
-	coverage: Record<string, { state: string; reason: string | null }>;
+	financials: Financials;
+	coverage: Record<string, { state: string; reason: string | null } & Partial<MetricEvidence>>;
 	shortSellers: ShortSellerAnalysis;
 	assetId: string;
 	isin: string | null;
@@ -127,7 +130,7 @@ export function computeFollowThrough(
 export async function issuerDetail(db: Db, assetId: string, runDate: string): Promise<IssuerDetail | null> {
 	let snapshot = (await savedSnapshots(db, runDate, assetId)).find((s) => s.assetId === assetId);
 	if (!snapshot) {
-		const [run] = await db.select().from(signalRun).where(and(eq(signalRun.runDate, runDate), eq(signalRun.status, 'success')));
+		const [run] = await db.select().from(signalRun).where(and(eq(signalRun.runDate, runDate), and(eq(signalRun.status, 'success'), eq(signalRun.isCurrent, true))));
 		if (run) return null;
 		snapshot = (await resolveSnapshots(db, runDate, runCutoff(runDate), true)).find((s) => s.assetId === assetId);
 	}
@@ -143,7 +146,7 @@ export async function issuerDetail(db: Db, assetId: string, runDate: string): Pr
 		return [...periods.values()].sort((a, b) => a.periodEnd.localeCompare(b.periodEnd));
 	};
 	return { assetId, isin: snapshot.isin, currency: snapshot.currency, ticker: snapshot.ticker, name: snapshot.name, sector: snapshot.sector, superSector: snapshot.sector, runDate,
-		coverage: snapshot.coverage, shortSellers: snapshot.shortSellers, monthlyCloses: downsampleMonthly(snapshot.series),
+		financials: snapshot.financials, coverage: snapshot.coverage, shortSellers: snapshot.shortSellers, monthlyCloses: downsampleMonthly(snapshot.series),
 		epsBasicHistory: history('eps_basic'), marketCapHistory: history('market_cap'), dividendPerShareHistory: history('dividend_per_share'),
 		insiderHistory: insiders.slice(0, INSIDER_HISTORY_LIMIT), insiderFollowThrough: computeFollowThrough(insiders, snapshot.series, runDate), news: snapshot.news.slice(0, NEWS_LIMIT) };
 }

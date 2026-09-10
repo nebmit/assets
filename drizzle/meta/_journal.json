@@ -78,6 +78,13 @@
       "when": 1788723185774,
       "tag": "0010_shared_asset_model",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1789023923807,
+      "tag": "0011_sec_xbrl_pipeline",
+      "breakpoints": true
     }
   ]
 }

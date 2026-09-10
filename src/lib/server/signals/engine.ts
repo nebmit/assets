@@ -131,12 +131,12 @@ export async function runSignals(db: Db, runDate: string): Promise<JobStats> {
 	const results = evaluateSignals(ctx);
 	const ids = await definitionIds(db);
 
-	// signals cascade-delete with the run; re-runs of the same date are atomic
+	// Retain historical generations; the current-generation switch and publication are atomic.
 	await db.transaction(async (tx) => {
-		await tx.delete(signalRun).where(eq(signalRun.runDate, runDate));
+		await tx.update(signalRun).set({ isCurrent: false }).where(eq(signalRun.runDate, runDate));
 		const [run] = await tx
 			.insert(signalRun)
-			.values({ runDate, status: 'running', universeSize: ctx.instruments.length, cutoffAt: cutoff, definitionVersions: { snapshot: { version: 2, sectorTaxonomyVersion: 1, priceReturnBasis: 'split_adjusted_native_price_return' }, ...Object.fromEntries(signalDefinitions.map((d) => [d.slug, { version: d.version, params: d.params }])) } })
+			.values({ runDate, status: 'running', universeSize: ctx.instruments.length, cutoffAt: cutoff, definitionVersions: { snapshot: { version: 3, secResolverVersion: 1, sectorTaxonomyVersion: 1, priceReturnBasis: 'split_adjusted_native_price_return' }, ...Object.fromEntries(signalDefinitions.map((d) => [d.slug, { version: d.version, params: d.params }])) } })
 			.returning({ id: signalRun.id });
 
 		// Bound JSON serialization and driver parameter buffers while retaining atomic publication.

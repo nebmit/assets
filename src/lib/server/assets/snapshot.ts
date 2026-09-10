@@ -1,9 +1,10 @@
-import { commonClassMembers } from '../sources/sec/shareClasses.js';
+import type { MetricEvidence } from '$lib/server/assets/metricEvidence.js';
+import { RESOLVER_VERSION } from '../sources/sec/xbrl/types.js';
 import { blocksShareAdjustment } from './adjustments.js';
 import { and, eq, inArray, lte, sql } from 'drizzle-orm';
 import type { Db } from '../db/index.js';
-import { instrument, issuer, listing, indexMembership, universe, eodPrice, fundamental, insiderTransaction, sourceFiling, corporateAction, fxRate, newsItem, assetSnapshot, signalRun, ingestionRun } from '../db/schema.js';
-import { resolveFinancials, splitFactor, type Financials } from './financials.js';
+import { instrument, issuer, listing, indexMembership, universe, eodPrice, fundamental, insiderTransaction, sourceFiling, corporateAction, fxRate, newsItem, assetSnapshot, signalRun, ingestionRun, secExtraction } from '../db/schema.js';
+import { resolveFinancials, splitFactor, type Financials, type ClassPrice } from './financials.js';
 import { qualifyDealings, type QualifiedDealing } from './ownership.js';
 import { loadShortSellerAnalysis } from '../shortSellers/queries.js';
 import { unknownShortSellers } from '../../shortSellers.js';
@@ -17,7 +18,7 @@ export interface ResearchSnapshot extends UniverseInstrument {
 	insiderHistory: QualifiedDealing[];
 	news: (NewsRowView & { id: number })[];
 	metricHistory: { metric: string; value: number; currency: string | null; periodStart: string | null; periodEnd: string; publishedDate: string; inputId: number }[];
-	coverage: Record<string, { state: string; reason: string | null }>;
+	coverage: Record<string, { state: string; reason: string | null } & Partial<MetricEvidence>>;
 	cutoffAt: string;
 }
 export function runCutoff(runDate: string, now = new Date()): Date {
@@ -67,32 +68,33 @@ async function resolveSnapshotBatch(db: Db, runDate: string, cutoff: Date, inclu
 	const bands = { large: 0, mid: 1, small: 2 };
 	for (const row of members.sort((a, b) => bands[a.universe.sizeBand] - bands[b.universe.sizeBand] || a.membership.indexName.localeCompare(b.membership.indexName))) if (!unique.has(row.asset.id)) unique.set(row.asset.id, row);
 	const { rates, shorts, priceSourceUnavailable } = shared;
-	const [allAssets, quotes, prices, facts, dealings, filings, actions, headlines] = await Promise.all([
+	const [allAssets, quotes, prices, facts, dealings, filings, actions, headlines, extractions] = await Promise.all([
 		db.select().from(instrument).where(inArray(instrument.issuerId, issuerIds)), db.select().from(listing).where(inArray(listing.instrumentId, assetIds)),
 		db.select().from(eodPrice).where(and(inArray(eodPrice.listingId, listingIdsQuery), lte(eodPrice.tradeDate, runDate), sql`(${eodPrice.observedAt} is null or ${eodPrice.observedAt} <= ${cutoff.toISOString()})`)),
-		db.select().from(fundamental).where(and(inArray(fundamental.issuerId, issuerIds), lte(fundamental.publishedDate, runDate), observed(fundamental.observedAt, cutoff), sql`(${fundamental.publishedAt} is null or ${fundamental.publishedAt} <= ${cutoff.toISOString()})`)),
+		db.select().from(fundamental).where(and(inArray(fundamental.issuerId, issuerIds), lte(fundamental.publishedDate, runDate), sql`(${fundamental.source} <> 'sec' or ${fundamental.metadata}->>'resolverVersion' = ${String(RESOLVER_VERSION)})`, observed(fundamental.observedAt, cutoff), sql`(${fundamental.publishedAt} is null or ${fundamental.publishedAt} <= ${cutoff.toISOString()})`)),
 		db.select().from(insiderTransaction).where(and(inArray(insiderTransaction.issuerId, issuerIds), lte(insiderTransaction.publishedDate, runDate), lte(insiderTransaction.transactionDate, runDate), sql`(${insiderTransaction.observedAt} is null or ${insiderTransaction.observedAt} <= ${cutoff.toISOString()}) and (${insiderTransaction.publishedAt} is null or ${insiderTransaction.publishedAt} <= ${cutoff.toISOString()})`)),
 		db.select().from(sourceFiling).where(and(inArray(sourceFiling.issuerId, issuerIds), lte(sourceFiling.filedDate, runDate), lte(sourceFiling.observedAt, cutoff))),
 		db.select().from(corporateAction).where(and(inArray(corporateAction.instrumentId, assetIds), lte(corporateAction.exDate, runDate), lte(corporateAction.observedAt, cutoff))),
-		db.select().from(newsItem).where(and(inArray(newsItem.issuerId, issuerIds), lte(newsItem.publishedAt, cutoff), sql`(${newsItem.observedAt} is null or ${newsItem.observedAt} <= ${cutoff.toISOString()})`))
+		db.select().from(newsItem).where(and(inArray(newsItem.issuerId, issuerIds), lte(newsItem.publishedAt, cutoff), sql`(${newsItem.observedAt} is null or ${newsItem.observedAt} <= ${cutoff.toISOString()})`)),
+		db.select().from(secExtraction).where(inArray(secExtraction.filingId, db.select({ id: sourceFiling.id }).from(sourceFiling).where(inArray(sourceFiling.issuerId, issuerIds))))
 	]);
 	const selectedDocuments = new Map(filings.map((f) => [f.id, ((f.metadata.documents ?? []) as { hash: string; observedAt: string }[]).filter((d) => d.observedAt <= cutoff.toISOString()).sort((a, b) => b.observedAt.localeCompare(a.observedAt))[0]?.hash]));
+	const extractionById = new Map(extractions.map((e) => [e.id, e]));
 	const currentFacts = facts.filter((f) => {
-		if (!f.metadata || !('classMember' in f.metadata)) return true;
-		const selected = selectedDocuments.get(f.filingId ?? -1);
-		return selected !== undefined && (f.metadata.evidence as { hash?: string } | undefined)?.hash === selected;
+		if (f.source !== 'sec') return true;
+		if (f.metadata?.resolverVersion !== RESOLVER_VERSION) return false;
+		const extraction = extractionById.get(Number(f.metadata?.extractionId));
+		return extraction !== undefined && extraction.manifest.submissionHash === selectedDocuments.get(f.filingId ?? -1);
 	});
 	const assetsByIssuer = groupBy(allAssets, (a) => a.issuerId), quotesByAsset = groupBy(quotes, (q) => q.instrumentId), pricesByListing = groupBy(prices, (p) => p.listingId), factsByIssuer = groupBy(currentFacts, (f) => f.issuerId), dealingsByIssuer = groupBy(dealings, (t) => t.issuerId), filingsByIssuer = groupBy(filings, (f) => f.issuerId), actionsByAsset = groupBy(actions, (a) => a.instrumentId), newsByIssuer = groupBy(headlines, (n) => n.issuerId);
 	const filingById = new Map(filings.map((f) => [f.id, f]));
 	const ownershipByIssuer = new Map<number, Map<number, QualifiedDealing[]>>();
-	const previousMetrics = await db.select({ instrumentId: assetSnapshot.instrumentId, date: signalRun.runDate, financials: sql<Financials>`${assetSnapshot.payload}->'financials'` }).from(assetSnapshot).innerJoin(signalRun, eq(signalRun.id, assetSnapshot.runId)).where(sql`${inArray(assetSnapshot.instrumentId, assetIds)} and ${signalRun.status} = 'success' and ${signalRun.runDate} < ${runDate} and ${signalRun.cutoffAt} <= ${cutoff.toISOString()}`);
+	const previousMetrics = await db.select({ instrumentId: assetSnapshot.instrumentId, date: signalRun.runDate, financials: sql<Financials>`${assetSnapshot.payload}->'financials'` }).from(assetSnapshot).innerJoin(signalRun, eq(signalRun.id, assetSnapshot.runId)).where(sql`${inArray(assetSnapshot.instrumentId, assetIds)} and ${signalRun.status} = 'success' and ${signalRun.isCurrent} = true and ${signalRun.runDate} < ${runDate} and ${signalRun.cutoffAt} <= ${cutoff.toISOString()}`);
 	const previousByAsset = groupBy(previousMetrics, (p) => p.instrumentId);
 	const snapshots: ResearchSnapshot[] = [];
 	for (const { asset, entity, quote, universe: group } of unique.values()) {
 		const identities = (assetsByIssuer.get(entity.id) ?? []).map((a) => ({ instrumentId: a.id, isin: a.isin, securityClass: a.securityClass, currency: quotesByAsset.get(a.id)?.find((q) => q.isPrimary && q.validTo === null)?.currency ?? '' }));
-		const commonListings = ((entity.secMetadata?.listings ?? []) as { excludedReason: string | null }[]).filter((l) => !l.excludedReason);
-		const reportedClasses = (filingsByIssuer.get(entity.id) ?? []).filter((f) => /^10-(K|Q)/.test(f.form)).sort((a, b) => b.filedDate.localeCompare(a.filedDate))[0]?.metadata.reportedShareClasses as string[] | undefined;
-		const singleClass = identities.length === 1 && commonListings.length <= 1 && commonClassMembers(reportedClasses ?? []).length <= 1;
+
 		const assetActions = new Map<string, typeof actions[number]>();
 		for (const a of (actionsByAsset.get(asset.id) ?? []).sort((a, b) => b.observedAt.getTime() - a.observedAt.getTime())) if (!assetActions.has(a.externalId)) assetActions.set(a.externalId, a);
 		const actionRows = [...assetActions.values()];
@@ -112,7 +114,24 @@ async function resolveSnapshotBatch(db: Db, runDate: string, cutoff: Date, inclu
 			if (basis && daysBetween(basis.toISOString().slice(0, 10), runDate) <= 10) series = [...adjusted.values()].sort((a, b) => a.tradeDate.localeCompare(b.tradeDate)).map((p) => ({ date: p.tradeDate, close: Number(p.close) }));
 		}
 		const issuerFacts = factsByIssuer.get(entity.id) ?? [];
-		const financials = resolveFinancials({ facts: issuerFacts, instrumentId: asset.id, singleClass, currency: quote.currency, close, priceDate: latest?.tradeDate, runDate, actions: actionRows, actionsComplete, adjustmentSymbol: quote.symbol });
+		const latestReport = (filingsByIssuer.get(entity.id) ?? []).filter((f) => /^10-(K|Q)/.test(f.form)).sort((a, b) => (b.reportDate ?? '').localeCompare(a.reportDate ?? '') || b.filedDate.localeCompare(a.filedDate))[0];
+		const inventoryFact = issuerFacts.filter((f) => f.filingId === latestReport?.id).sort((a, b) => b.periodEnd.localeCompare(a.periodEnd))[0];
+		const classes = (inventoryFact?.metadata?.classInventory ?? []) as string[];
+		const bindings = (inventoryFact?.metadata?.classBindings ?? {}) as Record<string, number>;
+		const earnings = Object.entries(bindings).find(([, id]) => id === asset.id)?.[0] ?? null;
+		const classPrices: ClassPrice[] = classes.flatMap((classId) => {
+			const id = bindings[classId]; if (!id) return [];
+			const listing = (quotesByAsset.get(id) ?? []).find((q) => q.isPrimary && q.validFrom <= runDate && (!q.validTo || q.validTo > runDate) && q.currency === quote.currency);
+			if (!listing) return [];
+			const price = (pricesByListing.get(listing.id) ?? []).filter((p) => p.adjustment === 'raw' && p.currency === quote.currency).sort((a, b) => b.tradeDate.localeCompare(a.tradeDate) || b.id - a.id)[0];
+			const seen = new Set<string>();
+			const classActions = (actionsByAsset.get(id) ?? []).sort((a, b) => b.observedAt.getTime() - a.observedAt.getTime()).filter((a) => { if (seen.has(a.externalId)) return false; seen.add(a.externalId); return true; });
+			return [{ classId, close: price ? Number(price.close) : null, priceDate: price?.tradeDate ?? null, priceId: price?.id, actions: classActions, actionsComplete: typeof listing.metadata.actionsCoveredFrom === 'string' && listing.metadata.actionsCoveredFrom <= addDays(runDate, -3 * 366) && typeof listing.metadata.actionsCheckedAt === 'string' && listing.metadata.actionsCheckedAt <= cutoff.toISOString() && daysBetween(listing.metadata.actionsCheckedAt.slice(0, 10), runDate) <= 10, symbol: listing.symbol }];
+		});
+		const financials = resolveFinancials({ facts: issuerFacts.filter((f) => f.source === (quote.source === 'boerse_frankfurt' ? 'boerse_frankfurt' : 'sec')), instrumentId: asset.id, scope: { earnings: quote.source === 'alpaca' ? earnings : 'issuer', classes, inventoryComplete: inventoryFact?.metadata?.inventoryComplete === true }, classPrices, latestReportEnd: quote.source === 'alpaca' ? latestReport?.reportDate : null, priceIds: latest ? [latest.id] : [], currency: quote.currency, close, priceDate: latest?.tradeDate, runDate, actions: actionRows, actionsComplete, adjustmentSymbol: quote.symbol });
+		if (quote.source === 'alpaca' && (!latestReport || !inventoryFact)) for (const key of ['eps', 'pb', 'marketCap'] as const) {
+			Object.assign(financials[key], { value: null, state: 'unavailable', reason: 'Latest financial filing is awaiting successful processing', reasonCode: 'latest_filing_unprocessed', method: null, asOf: null, periodStart: null, periodEnd: null, inputIds: [], evidence: { facts: [], prices: [], actions: [], rules: ['sec-financial-resolver:1'] } });
+		}
 		if (!ownershipByIssuer.has(entity.id)) ownershipByIssuer.set(entity.id, qualifyDealings(dealingsByIssuer.get(entity.id) ?? [], filingsByIssuer.get(entity.id) ?? [], identities, rates, cutoff));
 		const history = ownershipByIssuer.get(entity.id)!.get(asset.id) ?? [];
 		const metricHistory: ResearchSnapshot['metricHistory'] = [];
@@ -140,11 +159,11 @@ async function resolveSnapshotBatch(db: Db, runDate: string, cutoff: Date, inclu
 				const unavailable = rows.some((f) => f.status === 'unavailable' && f.updatedAt <= cutoff);
 				const incomplete = !rows.length || rows.some((f) => !['processed', 'unavailable'].includes(f.status) || f.updatedAt > cutoff);
 				return [key, { state: incomplete ? 'missing' : unavailable ? 'unavailable' : 'qualified', reason: incomplete ? `Some ${label} filings are awaiting processing or retry` : unavailable ? `SEC no longer provides some ${label} filings; absence verified against its archive and filing inventories` : null }];
-			})) : {}), observations: { state: priceRows.some((p) => p.observedAt === null) || issuerFacts.some((f) => f.observedAt === null) ? 'unqualified' : 'qualified', reason: priceRows.some((p) => p.observedAt === null) || issuerFacts.some((f) => f.observedAt === null) ? 'Legacy evidence has unknown observation times' : null }, prices: { state: close === null ? quote.source === 'alpaca' && priceSourceUnavailable ? 'unavailable' : 'missing' : latest && daysBetween(latest.tradeDate, runDate) > 10 ? 'stale' : 'qualified', reason: close === null ? quote.source === 'alpaca' && priceSourceUnavailable ? 'Daily market data is currently unavailable' : 'No completed daily close' : null }, adjustments: { state: series.length ? 'qualified' : 'unqualified', reason: series.length ? null : unsupported ? 'Unsupported corporate action' : actionsComplete ? null : 'Corporate action coverage unavailable' }, ...Object.fromEntries(Object.entries(financials).map(([key, v]) => [key, { state: v.state, reason: v.reason }])) }, cutoffAt: cutoff.toISOString() });
+			})) : {}), observations: { state: priceRows.some((p) => p.observedAt === null) || issuerFacts.some((f) => f.observedAt === null) ? 'unqualified' : 'qualified', reason: priceRows.some((p) => p.observedAt === null) || issuerFacts.some((f) => f.observedAt === null) ? 'Legacy evidence has unknown observation times' : null }, prices: { state: close === null ? quote.source === 'alpaca' && priceSourceUnavailable ? 'unavailable' : 'missing' : latest && daysBetween(latest.tradeDate, runDate) > 10 ? 'stale' : 'qualified', reason: close === null ? quote.source === 'alpaca' && priceSourceUnavailable ? 'Daily market data is currently unavailable' : 'No completed daily close' : null }, adjustments: { state: series.length ? 'qualified' : 'unqualified', reason: series.length ? null : unsupported ? 'Unsupported corporate action' : actionsComplete ? null : 'Corporate action coverage unavailable' }, ...Object.fromEntries(Object.entries(financials).map(([key, v]) => [key, { state: v.state, reason: v.reason, reasonCode: v.reasonCode, scope: v.scope, method: v.method, asOf: v.asOf, evidence: v.evidence }])) }, cutoffAt: cutoff.toISOString() });
 	}
 	return snapshots;
 }
 export async function savedSnapshots(db: Db, runDate: string, assetId?: string): Promise<ResearchSnapshot[]> {
-	const rows = await db.select({ payload: assetSnapshot.payload }).from(assetSnapshot).innerJoin(signalRun, eq(signalRun.id, assetSnapshot.runId)).where(and(eq(signalRun.runDate, runDate), eq(signalRun.status, 'success'), assetId ? sql`${assetSnapshot.payload}->>'assetId' = ${assetId}` : undefined));
+	const rows = await db.select({ payload: assetSnapshot.payload }).from(assetSnapshot).innerJoin(signalRun, eq(signalRun.id, assetSnapshot.runId)).where(and(eq(signalRun.runDate, runDate), and(eq(signalRun.status, 'success'), eq(signalRun.isCurrent, true)), assetId ? sql`${assetSnapshot.payload}->>'assetId' = ${assetId}` : undefined));
 	return rows.map((r) => r.payload as ResearchSnapshot);
 }

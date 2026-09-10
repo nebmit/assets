@@ -24,7 +24,7 @@ export interface SignalReport {
 }
 
 export async function latestRunDate(db: Db): Promise<string | null> {
-	const [row] = await db.select({ runDate: max(signalRun.runDate) }).from(signalRun).where(eq(signalRun.status, 'success'));
+	const [row] = await db.select({ runDate: max(signalRun.runDate) }).from(signalRun).where(and(eq(signalRun.status, 'success'), eq(signalRun.isCurrent, true)));
 	return row?.runDate ?? null;
 }
 
@@ -40,7 +40,7 @@ export async function signalReport(
 }
 
 async function readReport(db: Db, slug: string, runDate: string, top: number, excludeAssetIds?: ReadonlySet<string>): Promise<SignalReport | null> {
-	const [run] = await db.select().from(signalRun).where(and(eq(signalRun.runDate, runDate), eq(signalRun.status, 'success')));
+	const [run] = await db.select().from(signalRun).where(and(eq(signalRun.runDate, runDate), and(eq(signalRun.status, 'success'), eq(signalRun.isCurrent, true))));
 	if (!run) return null;
 	const [definition] = await db.select().from(signalDefinition).where(eq(signalDefinition.slug, slug));
 	if (!definition) return null;

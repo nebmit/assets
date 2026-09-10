@@ -136,6 +136,16 @@ async function main(): Promise<void> {
 	if (arg('date')) secDate.parse(arg('date'));
 	if (command === 'schedule' && arg('job')) fail('schedule selects job groups with --source, not --job');
 	switch (command) {
+		case 'reprocess': {
+			const output = arg('output');
+			if (!output) fail('reprocess requires --output=path for its candidate report');
+			const { replayFundamentals } = await import('../lib/server/sources/sec/xbrl/replay.js');
+			await runMigrations();
+			const result = await replayFundamentals({ db: getDb(), runDate: arg('date') ?? isoDate(new Date(), config().TZ), log: console.log, ...secOptions() }, { output, accession: arg('accession'), baseline: arg('baseline'), acquire: process.argv.includes('--acquire'), retryFailed: process.argv.includes('--retry-failed'), allPeriods: process.argv.includes('--all-periods') });
+			console.log(JSON.stringify(result));
+			if (result.failed) process.exitCode = 1;
+			break;
+		}
 		case 'migrate':
 			await runMigrations();
 			console.log('migrations applied');
@@ -153,7 +163,7 @@ async function main(): Promise<void> {
 			await report();
 			break;
 		default:
-			throw new Error(`unknown command "${command}" (expected: schedule | run | backfill | report | migrate)`);
+			throw new Error(`unknown command "${command}" (expected: schedule | run | backfill | report | migrate | reprocess)`);
 	}
 }
 

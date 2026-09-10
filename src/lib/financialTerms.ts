@@ -53,7 +53,7 @@ export const FINANCIAL_TERMS = {
 	marketCap: {
 		term: 'Mkt cap',
 		definition: 'Market capitalization',
-		clarification: 'Share price multiplied by qualified shares outstanding. US values describe the selected share class; issuer totals require every relevant class.'
+		clarification: 'Whole-company common-equity market value: the sum of qualified outstanding shares times the applicable price for every common share class. Unresolved class valuations remain unavailable.'
 	},
 	filings: {
 		term: 'Filings',

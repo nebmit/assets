@@ -74,7 +74,7 @@ export async function runJobs(db: Db, jobs: Job[], runDate: string, options: Job
 		while (jobs[i + 1]?.source === 'sec') group.push(jobs[++i]);
 		try {
 			const completed = await runSecJobs(db, group, runDate, options);
-			secIncomplete ||= completed.some((result) => !result.ok);
+			secIncomplete ||= completed.some((result) => !result.ok && (result.job === 'sec_universe' || !result.stats));
 			results.push(...completed);
 		}
 		catch (error) {

@@ -15,7 +15,9 @@
 		"test:watch": "vitest",
 		"worker": "tsx src/worker/main.ts",
 		"seed:demo": "tsx scripts/seed-demo.ts",
-		"db:generate": "drizzle-kit generate"
+		"db:generate": "drizzle-kit generate",
+		"xbrl:setup": "python3 -m venv .venv-xbrl && .venv-xbrl/bin/pip install -r scripts/xbrl/requirements.lock",
+		"test:xbrl": ".venv-xbrl/bin/python -m unittest discover -s scripts/xbrl -p \"test_*.py\""
 	},
 	"dependencies": {
 		"@modelcontextprotocol/sdk": "^1.29.0",

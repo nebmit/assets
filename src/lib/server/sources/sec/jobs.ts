@@ -1,19 +1,20 @@
+import { processFinancialFiling, globalFailure } from './xbrl/process.js';
+import { PARSER_VERSION, RESOLVER_VERSION } from './xbrl/types.js';
 import { verifyUnavailableFiling } from './unavailable.js';
 import { HttpError } from '../../http.js';
-import { access } from 'node:fs/promises';
-import { SEC_NORMALIZATION_VERSION } from './facts.js';
+import { access, readFile } from 'node:fs/promises';
 import { isDeepStrictEqual } from 'node:util';
 import { publishSecMemberships, symbolKey } from './universe.js';
 import { fetchIndexSnapshots, resolveIndexCiks } from './indices.js';
 import { selectedEntities, filingScope, isScoped, secJobName } from './selection.js';
 import { and, eq, inArray, sql } from 'drizzle-orm';
 import { z } from 'zod';
-import { issuer, sourceFiling, ingestionRun, newsItem, assetSnapshot, signalRun, instrument } from '../../db/schema.js';
+import { issuer, sourceFiling, ingestionRun, newsItem, assetSnapshot, signalRun, instrument, secProcessing, secExtraction } from '../../db/schema.js';
 import type { Job, JobContext, JobStats } from '../../pipeline/types.js';
 import { addDays } from '../../util.js';
 import { archiveEvidence, fetchFinancialSubmission, fetchSecText, readZip, SecAccessError, type Evidence } from './client.js';
 import { classifyIssuer, financialForm, ownershipForm, parseDirectory, parseMasterIndex, parseInsiderDataset, parseSubmissions, parseTickers, type Listing } from './parse.js';
-import { persistFacts, persistFiling, persistNews, SEC_NEWS_VERSION, rememberFiling, updateIssuerMetadata } from './store.js';
+import { recordCompanyFactsComparison, financialDocuments, persistFiling, persistNews, SEC_NEWS_VERSION, rememberFiling, updateIssuerMetadata } from './store.js';
 
 export const SEC_SUBMISSIONS_ZIP = 'https://www.sec.gov/Archives/edgar/daily-index/bulkdata/submissions.zip';
 export const SEC_FACTS_ZIP = 'https://www.sec.gov/Archives/edgar/daily-index/xbrl/companyfacts.zip';
@@ -293,46 +294,29 @@ export const secInsidersJob: Job = { name: 'sec_insiders', source: 'sec', run: (
 
 export const secFundamentalsJob: Job = {
 	name: 'sec_fundamentals', source: 'sec', async run(ctx) {
-		const all = await included(ctx);
-		const pending = new Map<string, typeof all[number]>();
-		for (const e of all) {
-			const [latest] = await ctx.db.select({ updatedAt: sourceFiling.updatedAt }).from(sourceFiling).where(and(eq(sourceFiling.issuerId,e.id), eq(sourceFiling.source,'sec'), sql`${sourceFiling.form} ~ '^10-(K|Q)'`)).orderBy(sql`${sourceFiling.updatedAt} desc`).limit(1);
-			if (e.secMetadata?.factsNormalizationVersion !== SEC_NORMALIZATION_VERSION || e.secMetadata?.factsStatus !== 'processed' || (latest && latest.updatedAt.toISOString() > String(e.secMetadata?.factsCheckedAt ?? ''))) pending.set(e.cik!, e);
-		}
-		let processed = 0, failed = 0, pendingFacts = 0;
-		async function consume(id: string, text: string, url: string) {
-			const e = pending.get(id)!;
-			try { const evidence = await archiveEvidence(url,text); const result = await persistFacts(ctx,e,JSON.parse(text),evidence,financialCutoff(ctx.runDate)); pendingFacts += result.missingFilings; processed++; if (processed % 25 === 0) ctx.log(`normalized ${processed} of ${pending.size} issuers; ${failed} failed`); }
-			catch (error) {
-				if (error instanceof SecAccessError) throw error;
-				failed++;
-				ctx.log(`fundamentals failed for CIK ${id} (${url}): ${String(error)}`);
-				await updateIssuerMetadata(ctx,e.id,{ factsStatus: 'error', factsError: String(error) });
+		let processed = 0, failed = 0, facts = 0, pending = 0;
+		for (const entity of await included(ctx)) {
+			const filings = await ctx.db.select().from(sourceFiling).where(and(eq(sourceFiling.issuerId, entity.id), eq(sourceFiling.source, 'sec'), sql`${sourceFiling.form} ~ '^10-(K|Q)(/A)?$' and ${sourceFiling.filedDate} <= ${ctx.runDate} and ${sourceFiling.filedDate} >= ${financialCutoff(ctx.runDate)}`)).orderBy(sql`${sourceFiling.filedDate} desc`);
+			let incomplete = !filings.length || filings.some((f) => f.status !== 'processed');
+			for (const filing of financialDocuments(filings, ctx.runDate)) {
+				if (filing.status !== 'processed') { incomplete = true; continue; }
+				const result = await processFinancialFiling(ctx, filing);
+				facts += result.facts;
+				if (result.ok) processed++; else { failed++; incomplete = true; }
 			}
-		}
-		{
-			if (pending.size > 20 && !isScoped(ctx)) {
-				const seen = new Set<string>();
-				await readZip(SEC_FACTS_ZIP,(name) => /^CIK\d{10}\.json$/.test(name) && pending.has(name.slice(3,13)),async (name,text) => { const id = name.slice(3,13); seen.add(id); await consume(id,text,`${SEC_FACTS_ZIP}#${name}`); });
-				for (const [id,e] of pending) if (!seen.has(id)) { failed++; await updateIssuerMetadata(ctx,e.id,{ factsStatus: 'unavailable', factsError: 'missing_from_companyfacts_archive' }); }
-			} else {
-				const entries = [...pending];
-				for (let offset = 0; offset < entries.length; offset += 3) {
-					const batch = await Promise.allSettled(entries.slice(offset, offset + 3).map(async ([id, e]) => {
-						const url = `https://data.sec.gov/api/xbrl/companyfacts/CIK${id}.json`;
-						try { await consume(id, await fetchSecText(url), url); }
-						catch (error) {
-							if (error instanceof SecAccessError) throw error;
-							failed++; ctx.log(`fundamentals failed for CIK ${id} (${url}): ${String(error)}`);
-							await updateIssuerMetadata(ctx, e.id, { factsStatus: 'error', factsError: String(error) });
-						}
-					}));
-					const rejected = batch.find((r) => r.status === 'rejected');
-					if (rejected?.status === 'rejected') throw rejected.reason;
+			try {
+				const cached = entity.secMetadata?.factsEvidence as Evidence | undefined;
+				if (cached && cached.observedAt.slice(0, 10) >= (filings[0]?.filedDate ?? '')) {
+					await recordCompanyFactsComparison(ctx, entity, JSON.parse(await readFile(cached.path, 'utf8')), cached, financialCutoff(ctx.runDate));
+				} else {
+					const fetched = await jsonEvidence(`https://data.sec.gov/api/xbrl/companyfacts/CIK${entity.cik}.json`);
+					await recordCompanyFactsComparison(ctx, entity, fetched.input, fetched.evidence, financialCutoff(ctx.runDate));
 				}
-			}
+			} catch (error) { if (globalFailure(error)) throw error; ctx.log(`Company Facts comparison unavailable for ${entity.cik}: ${String(error)}`); }
+			if (incomplete) pending++;
+			await updateIssuerMetadata(ctx, entity.id, { factsStatus: incomplete ? 'pending_filings' : 'processed', factsParserVersion: PARSER_VERSION, factsResolverVersion: RESOLVER_VERSION, factsCheckedAt: new Date().toISOString() });
 		}
-		return { issuers: all.length, normalization_version: SEC_NORMALIZATION_VERSION, refreshed: processed, failed, pending: pendingFacts, deferred: pending.size - processed - failed };
+		return { processed, failed, facts, pending, parser_version: PARSER_VERSION, resolver_version: RESOLVER_VERSION };
 	}
 };
 
@@ -421,12 +405,14 @@ export async function secReport(ctx: JobContext): Promise<Record<string, unknown
 		from ${assetSnapshot} a join ${signalRun} r on r.id=a.run_id
 		join ${instrument} i on i.id=a.instrument_id
 		cross join lateral jsonb_each(a.payload->'financials') metric
-		where r.id=(select max(id) from ${signalRun} where status='success')
+		where r.id=(select id from ${signalRun} where status='success' and is_current=true order by run_date desc,id desc limit 1)
 			and i.issuer_id in (${all.length ? sql.join(all.map((e) => sql`${e.id}`), sql`, `) : sql`null`})
 		group by r.run_date, metric.key, metric.value->>'state', metric.value->>'reason'
 		order by metric.key, state, reason
 	`);
-	return { generatedAt: new Date().toISOString(), requestedThrough: ctx.runDate, normalizationVersion: SEC_NORMALIZATION_VERSION, financialCoverage: coverage,
+	const processingStages = await ctx.db.select({ stage: secProcessing.stage, status: secProcessing.status, reasonCode: secProcessing.reasonCode, count: sql<number>`count(*)::int` }).from(secProcessing).innerJoin(sourceFiling, eq(sourceFiling.id, secProcessing.filingId)).where(filingScope(ctx, all.map((e) => e.id))).groupBy(secProcessing.stage, secProcessing.status, secProcessing.reasonCode);
+	const extractionSummary = await ctx.db.select({ parserVersion: secExtraction.parserVersion, count: sql<number>`count(*)::int`, latest: sql<string>`max(${secExtraction.processedAt})` }).from(secExtraction).innerJoin(sourceFiling, eq(sourceFiling.id, secExtraction.filingId)).where(filingScope(ctx, all.map((e) => e.id))).groupBy(secExtraction.parserVersion);
+	return { generatedAt: new Date().toISOString(), requestedThrough: ctx.runDate, parserVersion: PARSER_VERSION, resolverVersion: RESOLVER_VERSION, processingStages, extractionSummary, financialCoverage: coverage,
 		prices: 'alpaca_sip_coverage_in_asset_snapshots', shortPositions: 'unavailable', selection: { indices: ctx.cik ? [] : ctx.issuerSelection?.indices ?? 'all', membershipBasis: ctx.issuerSelection?.indices ? 'etf_holdings_proxy' : 'sec_directory', observedAt: universeRun?.finishedAt, holdingsAsOf: universeStats?.holdings_as_of, unresolvedHoldings: universeStats?.unresolved_index_holdings, evidencePath: universeStats?.reconciliation_path, ciks: all.map((e) => e.cik) }, summary,
 		issuers: all.map((e) => ({ cik: e.cik, name: e.name, status: e.secMetadata?.status, reason: e.secMetadata?.reason,
 			listings: e.secMetadata?.listings, listingObservedAt: e.secMetadata?.listingObservedAt,

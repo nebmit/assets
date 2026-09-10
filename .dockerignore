@@ -18,3 +18,7 @@ coverage
 data
 build
 .svelte-kit
+
+.venv-xbrl
+__pycache__
+.env.*

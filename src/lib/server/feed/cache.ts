@@ -1,5 +1,5 @@
 import type { Db } from '../db/index.js';
-import { desc, eq } from 'drizzle-orm';
+import { and, desc, eq } from 'drizzle-orm';
 import { signalRun } from '../db/schema.js';
 import type { FeedPayload } from '../../feed/types.js';
 import { loadFeed } from './queries.js';
@@ -7,7 +7,7 @@ import { loadFeed } from './queries.js';
 /** A replacement run on the same date must invalidate saved evidence. */
 async function latestRunKey(db: Db): Promise<string | null> {
 	const [run] = await db.select({ id: signalRun.id, date: signalRun.runDate }).from(signalRun)
-		.where(eq(signalRun.status, 'success')).orderBy(desc(signalRun.runDate)).limit(1);
+		.where(and(eq(signalRun.status, 'success'), eq(signalRun.isCurrent, true))).orderBy(desc(signalRun.runDate)).limit(1);
 	return run ? `${run.date}:${run.id}` : null;
 }
 

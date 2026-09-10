@@ -1,3 +1,4 @@
+import type { Financials } from '../assets/financials.js';
 import type { NewsRowView } from '../../feed/types.js';
 import { and, eq, inArray } from 'drizzle-orm';
 import type { Db } from '../db/index.js';
@@ -29,6 +30,7 @@ import { addDays } from '../util.js';
  */
 
 export interface FundamentalsSnapshot {
+	financials: Financials;
 	currency: string;
 	price: number | null;
 	priceDate: string | null;
@@ -46,7 +48,7 @@ export function fundamentalsView(s: ResearchSnapshot): FundamentalsSnapshot {
 	const adjustedClose = s.series.at(-1)?.close ?? null;
 	const base = s.series.filter((p) => p.date <= priorYear && p.date > addDays(priorYear, -10)).at(-1)?.close ?? null;
 	const range = s.series.filter((p) => p.date > addDays(s.cutoffAt.slice(0, 10), -365));
-	return { currency: s.currency, price: s.close, priceDate: s.closeDate,
+	return { financials: s.financials, currency: s.currency, price: s.close, priceDate: s.closeDate,
 		ytdReturn: adjustedClose !== null && base !== null && base > 0 ? adjustedClose / base - 1 : null,
 		high52w: range.length ? Math.max(...range.map((p) => p.close)) : null,
 		low52w: range.length ? Math.min(...range.map((p) => p.close)) : null,

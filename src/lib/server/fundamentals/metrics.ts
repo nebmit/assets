@@ -20,6 +20,9 @@ export const METRICS = {
 	treasuryStock: 'treasury_stock',
 	preferredSharesIssued: 'preferred_shares_issued',
 	preferredEquity: 'preferred_equity',
+	noncontrollingEquity: 'noncontrolling_equity',
+	temporaryEquity: 'temporary_equity',
+	additionalPaidInCapitalTotal: 'additional_paid_in_capital_total',
 	operatingCashFlow: 'operating_cash_flow',
 	/** Not populated by the BF snapshot; arrives with the ESEF pipeline. */
 	sharesOutstanding: 'shares_outstanding',

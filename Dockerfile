@@ -51,3 +51,24 @@ ENTRYPOINT ["/usr/bin/dumb-init", "--"]
 
 # Start the application
 CMD ["node", "build"]
+
+# Explicit worker image: Python and Node share a Debian runtime; the web target above stays unchanged.
+FROM python:3.12.4-slim-bookworm AS worker
+COPY --from=builder /usr/local/bin/node /usr/local/bin/node
+RUN apt-get update && apt-get install -y --no-install-recommends dumb-init ca-certificates && rm -rf /var/lib/apt/lists/*
+WORKDIR /app
+COPY scripts/xbrl/requirements.lock scripts/xbrl/requirements.lock
+RUN python3 -m venv /app/.venv-xbrl && /app/.venv-xbrl/bin/pip install --no-cache-dir -r scripts/xbrl/requirements.lock
+COPY --from=builder /app/build build/
+COPY --from=builder /app/drizzle drizzle/
+COPY --from=builder /app/node_modules node_modules/
+COPY --from=builder /app/package.json .
+COPY scripts/xbrl scripts/xbrl/
+RUN mkdir -p /data/raw && chown -R 65532:65532 /data /app
+USER 65532:65532
+ENV XBRL_PYTHON=/app/.venv-xbrl/bin/python
+ENTRYPOINT ["/usr/bin/dumb-init", "--"]
+CMD ["node", "build/worker.js", "schedule"]
+
+# Preserve the existing default web image; build the worker with --target worker.
+FROM runtime AS web

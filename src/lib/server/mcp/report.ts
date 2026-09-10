@@ -50,7 +50,7 @@ export async function enrichedSignalReport(
 }
 
 async function readReport(db: Db, slug: string, runDate: string, top: number, excludeAssetIds?: ReadonlySet<string>): Promise<EnrichedSignalReport | null> {
-	const [run] = await db.select().from(signalRun).where(and(eq(signalRun.runDate, runDate), eq(signalRun.status, 'success')));
+	const [run] = await db.select().from(signalRun).where(and(eq(signalRun.runDate, runDate), and(eq(signalRun.status, 'success'), eq(signalRun.isCurrent, true))));
 	if (!run) return null;
 	const [definition] = await db.select().from(signalDefinition).where(eq(signalDefinition.slug, slug));
 	if (!definition) return null;
