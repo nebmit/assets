@@ -1,5 +1,6 @@
+import { openStored, readStoredText } from '../../storage.js';
 import { createHash } from 'node:crypto';
-import { mkdtemp, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { mkdtemp, readdir, rm, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { tmpdir } from 'node:os';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -34,7 +35,12 @@ describe('streamed financial filings', () => {
 		expect(MAX_SUBMISSION_BYTES).toBe(1024 ** 3);
 		expect(first.header).toBe(header);
 		expect(first.evidence.hash).toBe(expected.digest('hex'));
-		expect((await stat(first.evidence.path)).size).toBe(Buffer.byteLength(header) + blocks * 64 * 1024);
+		expect((await stat(first.evidence.path)).size).toBeLessThan(blocks * 1024);
+				const restored = createHash('sha256');
+				let restoredBytes = 0;
+				for await (const chunk of await openStored(first.evidence.path)) { restored.update(chunk); restoredBytes += chunk.length; }
+				expect(restored.digest('hex')).toBe(first.evidence.hash);
+				expect(restoredBytes).toBe(Buffer.byteLength(header) + blocks * 64 * 1024);
 		const second = await archiveFinancialSubmission(generatedSubmission(blocks), url, accession, dir);
 		expect(second.evidence.path).toBe(first.evidence.path);
 		expect(evidenceVersions({ documents: [first.evidence] }, second.evidence)).toEqual([first.evidence]);
@@ -49,7 +55,7 @@ describe('streamed financial filings', () => {
 		} }));
 		const result = await archiveFinancialSubmission(res, url, accession, await root());
 		expect(result.evidence.hash).toBe(hash(text));
-		expect(await readFile(result.evidence.path, 'utf8')).toBe(text);
+		expect(await readStoredText(result.evidence.path)).toBe(text);
 		expect(parseFinancialHeader(result.header, accession)?.toISOString()).toBe('2024-02-15T17:00:00.000Z');
 	});
 	it('removes staging files after interruptions and never publishes partial originals', async () => {

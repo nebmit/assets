@@ -1,5 +1,6 @@
+import { copyStored } from '../../../storage.js';
 import { spawn } from 'node:child_process';
-import { mkdtemp, readFile, writeFile, copyFile, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { artifactSchema, PARSER_CONFIG, XbrlError, type FilingPackage, type XbrlArtifact } from './types.js';
@@ -14,7 +15,7 @@ async function extract(manifest: FilingPackage): Promise<XbrlArtifact> {
 	const directory = await mkdtemp(path.join(tmpdir(), 'assets-xbrl-'));
 	try {
 		const urls: Record<string, string> = {};
-		for (const document of manifest.documents) { urls[document.url] = document.hash; await copyFile(document.path, path.join(directory, document.hash)); }
+		for (const document of manifest.documents) { urls[document.url] = document.hash; await copyStored(document.path, path.join(directory, document.hash)); }
 		const request = path.join(directory, 'request.json'), output = path.join(directory, 'output.json');
 		await writeFile(request, JSON.stringify({ root: directory, urls, entrypoints: manifest.entrypoints }));
 		await new Promise<void>((resolve, reject) => {

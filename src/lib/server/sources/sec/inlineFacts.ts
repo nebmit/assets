@@ -57,8 +57,8 @@ export function parseInlineFacts(source: string): InlineFact[] {
 
 /** Extract the primary financial document without buffering binary exhibits or an entire submission. */
 export async function readPrimaryDocument(file: string, form: string, maxBytes = 64 * 1024 * 1024): Promise<string | null> {
-	const { createReadStream } = await import('node:fs');
-	const stream = createReadStream(file, { encoding: 'utf8' });
+	const { openStored } = await import('../../storage.js');
+	const stream = (await openStored(file)).setEncoding('utf8');
 	let buffer = '', inside = false, selected: boolean | null = null, output = '';
 	try {
 		for await (const chunk of stream) {

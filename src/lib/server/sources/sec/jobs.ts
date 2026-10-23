@@ -2,7 +2,8 @@ import { processFinancialFiling, globalFailure } from './xbrl/process.js';
 import { PARSER_VERSION, RESOLVER_VERSION } from './xbrl/types.js';
 import { verifyUnavailableFiling } from './unavailable.js';
 import { HttpError } from '../../http.js';
-import { access, readFile } from 'node:fs/promises';
+import { access } from 'node:fs/promises';
+import { readStoredText } from '../../storage.js';
 import { isDeepStrictEqual } from 'node:util';
 import { publishSecMemberships, symbolKey } from './universe.js';
 import { fetchIndexSnapshots, resolveIndexCiks } from './indices.js';
@@ -306,8 +307,8 @@ export const secFundamentalsJob: Job = {
 			}
 			try {
 				const cached = entity.secMetadata?.factsEvidence as Evidence | undefined;
-				if (cached && cached.observedAt.slice(0, 10) >= (filings[0]?.filedDate ?? '')) {
-					await recordCompanyFactsComparison(ctx, entity, JSON.parse(await readFile(cached.path, 'utf8')), cached, financialCutoff(ctx.runDate));
+				if (cached && cached.observedAt.slice(0, 10) >= (filings[0]?.filedDate ?? '') && await access(cached.path).then(() => true, (error: NodeJS.ErrnoException) => { if (error.code === 'ENOENT') return false; throw error; })) {
+					await recordCompanyFactsComparison(ctx, entity, JSON.parse(await readStoredText(cached.path)), cached, financialCutoff(ctx.runDate));
 				} else {
 					const fetched = await jsonEvidence(`https://data.sec.gov/api/xbrl/companyfacts/CIK${entity.cik}.json`);
 					await recordCompanyFactsComparison(ctx, entity, fetched.input, fetched.evidence, financialCutoff(ctx.runDate));

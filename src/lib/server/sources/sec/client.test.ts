@@ -1,3 +1,4 @@
+import { readStoredText } from '../../storage.js';
 import { describe, expect, it } from 'vitest';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
@@ -29,7 +30,13 @@ describe('SEC transport and evidence boundaries', () => {
 			const corrected = await archiveEvidence('https://www.sec.gov/sample','corrected',root);
 			expect(first.path).toBe(repeat.path); expect(corrected.path).not.toBe(first.path);
 			await pruneRawArchive('2030-01-01',1,root);
-			expect(await readFile(first.path,'utf8')).toBe('original');
+			expect((await readFile(first.path)).subarray(0, 2)).toEqual(Buffer.from([0x1f, 0x8b]));
+				expect(await readStoredText(first.path)).toBe('original');
+				await writeFile(first.path, 'original');
+				expect((await archiveEvidence('https://www.sec.gov/sample', 'original', root)).path).toBe(first.path);
+				await rm(path.join(root, 'sec'), { recursive: true });
+				expect((await archiveEvidence('https://www.sec.gov/sample', 'original', root)).path).toBe(first.path);
+				expect(await readStoredText(first.path)).toBe('original');
 			await writeFile(first.path,'corrupt');
 			await expect(archiveEvidence('https://www.sec.gov/sample','original',root)).rejects.toThrow('corrupt');
 		} finally { await rm(root,{recursive:true,force:true}); }

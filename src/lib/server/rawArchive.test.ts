@@ -1,8 +1,11 @@
-import { mkdir, mkdtemp, readdir, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { pruneRawArchive } from './rawArchive.js';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { archiveRaw, pruneRawArchive } from './rawArchive.js';
+import * as configuration from './config.js';
+import { readStoredText } from './storage.js';
+import { archiveObservation, fingerprint } from './assets/evidence.js';
 
 let root: string;
 
@@ -17,7 +20,25 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
+	vi.restoreAllMocks();
 	await rm(root, { recursive: true, force: true });
+});
+
+describe('raw storage', () => {
+	it('compresses raw payloads and observations without changing names or hashes', async () => {
+		vi.spyOn(configuration, 'config').mockReturnValue({ ...configuration.config(), RAW_DATA_DIR: root });
+		await archiveRaw('bf', 'payload.json', '{"name":"Grüße"}', '2026-07-08');
+		const file = path.join(root, 'bf', '2026-07-08', 'payload.json');
+		expect((await readFile(file)).subarray(0, 2)).toEqual(Buffer.from([0x1f, 0x8b]));
+		expect(await readStoredText(file)).toBe('{"name":"Grüße"}');
+		const first = await archiveObservation('bf', 'https://example.com', 'original');
+		expect(first.hash).toBe(fingerprint('original'));
+		expect(await readStoredText(first.path)).toBe('original');
+		expect((await archiveObservation('bf', first.url, 'original')).path).toBe(first.path);
+		await rm(root, { recursive: true });
+		expect((await archiveObservation('bf', first.url, 'original')).path).toBe(first.path);
+		expect(await readStoredText(first.path)).toBe('original');
+	});
 });
 
 describe('pruneRawArchive', () => {

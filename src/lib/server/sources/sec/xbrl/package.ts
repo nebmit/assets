@@ -1,4 +1,4 @@
-import { createReadStream } from 'node:fs';
+import { openStored, readStored, readStoredText } from '../../../storage.js';
 import { randomUUID } from 'node:crypto';
 import { createInterface } from 'node:readline';
 import { readFile, mkdir, writeFile, rename } from 'node:fs/promises';
@@ -12,7 +12,7 @@ import { XbrlError, type FilingPackage } from './types.js';
 export async function submissionDocuments(file: string): Promise<{ name: string; type: string; body: string }[]> {
 	const result: { name: string; type: string; body: string }[] = [];
 	let name = '', type = '', body = '', inDocument = false, inText = false, keep = false;
-	for await (const line of createInterface({ input: createReadStream(file), crlfDelay: Infinity })) {
+	for await (const line of createInterface({ input: await openStored(file), crlfDelay: Infinity })) {
 		if (line === '<DOCUMENT>') { inDocument = true; name = ''; type = ''; body = ''; continue; }
 		if (!inDocument) continue;
 		if (line.startsWith('<TYPE>')) type = line.slice(6).trim();
@@ -78,7 +78,7 @@ export async function buildPackage(input: { accession: string; acceptedAt: strin
 				evidence = await archiveEvidence(url, body, input.root);
 				await mkdir(cache, { recursive: true }); const temporary = index + '.' + randomUUID(); await writeFile(temporary, JSON.stringify(evidence)); await rename(temporary, index);
 			}
-			const body = await readFile(evidence.path, 'utf8');
+			const body = await readStoredText(evidence.path);
 			if (hash(body) !== evidence.hash) throw new XbrlError('evidence_integrity', url);
 			bodies.set(url, body); byUrl.set(url, evidence);
 		}
@@ -87,5 +87,5 @@ export async function buildPackage(input: { accession: string; acceptedAt: strin
 	return { schemaVersion: 1, accession: input.accession, acceptedAt: input.acceptedAt, submissionHash: input.evidence.hash, entrypoints: entrypoints.sort(), documents: [...byUrl.values()].sort((a, b) => a.url.localeCompare(b.url)) };
 }
 export async function verifyPackage(manifest: FilingPackage): Promise<void> {
-	for (const document of manifest.documents) if (hash(await readFile(document.path)) !== document.hash) throw new XbrlError('evidence_integrity', `Hash mismatch: ${document.url}`);
+	for (const document of manifest.documents) if (hash(await readStored(document.path)) !== document.hash) throw new XbrlError('evidence_integrity', `Hash mismatch: ${document.url}`);
 }

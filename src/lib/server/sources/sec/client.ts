@@ -1,4 +1,4 @@
-import { createReadStream } from 'node:fs';
+import { openStored, writeStored } from '../../storage.js';
 import { parseFinancialHeader } from './filingHeader.js';
 import { createHash } from 'node:crypto';
 import { mkdir, open, rename, rm, mkdtemp, link } from 'node:fs/promises';
@@ -120,8 +120,7 @@ export async function archiveEvidence(url: string, content: string, root = confi
 	const target = path.join(dir, digest);
 	const temp = await mkdtemp(path.join(dir, '.write-'));
 	try {
-		const file = await open(path.join(temp, 'body'), 'wx');
-		try { await file.writeFile(content); await file.sync(); } finally { await file.close(); }
+		await writeStored(path.join(temp, 'body'), content);
 		await publishEvidence(path.join(temp, 'body'), target, digest);
 	} finally { await rm(temp, { recursive: true, force: true }); }
 	return { hash: digest, path: target, url, observedAt: new Date().toISOString() };
@@ -132,7 +131,7 @@ async function publishEvidence(staged: string, target: string, digest: string): 
 	catch (error) {
 		if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
 		const existing = createHash('sha256');
-		for await (const chunk of createReadStream(target)) existing.update(chunk);
+		for await (const chunk of await openStored(target)) existing.update(chunk);
 		if (existing.digest('hex') !== digest) throw new Error('corrupt SEC evidence object');
 	}
 }
@@ -152,11 +151,11 @@ export async function archiveFinancialSubmission(res: Response, url: string, acc
 	try {
 		await mkdir(objects, { recursive: true });
 		temp = await mkdtemp(path.join(objects, '.write-'));
-		const file = await open(path.join(temp, 'body'), 'wx');
 		const digest = createHash('sha256');
 		let size = 0, prefix = Buffer.alloc(0), header: string | undefined;
-		try {
-			for await (const chunk of bodyChunks(res.body)) {
+		const body = res.body;
+		async function* chunks() {
+			for await (const chunk of bodyChunks(body)) {
 				size += chunk.length; transportStats.bytes += chunk.length;
 				if (size > maxBytes) throw new SourceSizeError(url, size, maxBytes);
 				if (header === undefined) {
@@ -171,11 +170,12 @@ export async function archiveFinancialSubmission(res: Response, url: string, acc
 					} else if (prefix.length === MAX_HEADER_BYTES) throw new Error(`SEC header exceeds ${MAX_HEADER_BYTES} bytes: ${url}`);
 				}
 				digest.update(chunk);
-				await file.writeFile(chunk);
+				yield chunk;
 			}
 			if (header === undefined) throw new Error(`missing complete SEC header: ${url}`);
-			await file.sync();
-		} finally { await file.close(); }
+		}
+		await writeStored(path.join(temp, 'body'), chunks());
+		if (header === undefined) throw new Error(`missing complete SEC header: ${url}`);
 		const value = digest.digest('hex');
 		const dir = path.join(objects, value.slice(0, 2));
 		await mkdir(dir, { recursive: true });

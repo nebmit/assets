@@ -1,5 +1,6 @@
-import { mkdir, readdir, rm, writeFile } from 'node:fs/promises';
+import { mkdir, readdir, rm } from 'node:fs/promises';
 import path from 'node:path';
+import { writeStored } from './storage.js';
 import { config } from './config.js';
 import { addDays, isoDate } from './util.js';
 
@@ -16,7 +17,7 @@ export async function archiveRaw(
 	const safeName = name.replace(/[^a-zA-Z0-9._-]+/g, '_');
 	const dir = path.join(config().RAW_DATA_DIR, source, date);
 	await mkdir(dir, { recursive: true });
-	await writeFile(path.join(dir, safeName), content);
+	await writeStored(path.join(dir, safeName), content, 'w');
 }
 
 const DATE_DIR = /^\d{4}-\d{2}-\d{2}$/;

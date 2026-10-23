@@ -1,5 +1,5 @@
 import { canonicalJson } from './canonical.js';
-import { readFile } from 'node:fs/promises';
+import { readStoredText } from '../../../storage.js';
 import { and, eq, sql } from 'drizzle-orm';
 import type { JobContext } from '../../../pipeline/types.js';
 import { fundamental, instrument, listing, secExtraction, secProcessing, sourceFiling } from '../../../db/schema.js';
@@ -38,7 +38,7 @@ export async function processFinancialFiling(ctx: JobContext, filing: Filing, of
 			if (!extraction) [extraction] = await ctx.db.select().from(secExtraction).where(and(eq(secExtraction.filingId, filing.id), eq(secExtraction.packageHash, packageHash), eq(secExtraction.parserVersion, PARSER_VERSION), eq(secExtraction.configHash, configHash)));
 		}
 		await ctx.db.update(secProcessing).set({ extractionId: extraction.id, stage: 'normalize', updatedAt: new Date() }).where(where);
-		const content = await readFile(extraction.artifact.path, 'utf8');
+		const content = await readStoredText(extraction.artifact.path);
 		if (hash(content) !== extraction.artifact.hash) throw new XbrlError('evidence_integrity', 'Extraction artifact hash mismatch');
 		const parsed = artifactSchema.safeParse(JSON.parse(content));
 		if (!parsed.success) throw new XbrlError('artifact_version', 'Unsupported extraction artifact');
