@@ -2,12 +2,19 @@ import { unknownShortSellers } from '../../shortSellers.js';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { describe, expect, it } from 'vitest';
+import type { Financials } from '../assets/financials.js';
 import type { IssuerDetail } from '../issuer/detail.js';
 import { summarizeRationale } from '../signals/report.js';
 import type { EnrichedReportRow, EnrichedSignalReport } from './report.js';
 import { buildMcpServer, type McpDeps } from './server.js';
 
 const RUN_DATE = '2026-07-01';
+const financials: Financials = {
+	eps: { value: 5.9, currency: 'EUR', unit: 'EUR/shares', state: 'qualified', reason: null, periodStart: null, periodEnd: '2026-06-30', inputIds: [] },
+	marketCap: { value: 4_200_000_000, currency: 'EUR', unit: 'EUR', state: 'qualified', reason: null, periodStart: null, periodEnd: RUN_DATE, inputIds: [] },
+	dividend: { value: null, currency: 'EUR', unit: 'EUR/shares', state: 'missing', reason: 'no dividend facts', periodStart: null, periodEnd: null, inputIds: [] },
+	pb: { value: null, currency: null, unit: 'pure', state: 'missing', reason: 'no book value facts', periodStart: null, periodEnd: null, inputIds: [] }
+};
 
 const alphaRow: EnrichedReportRow = {
 	coverage: {}, shortSellers: unknownShortSellers(), assetId: '00000000-0000-4000-8000-000000000001', currency: 'EUR',
@@ -21,6 +28,7 @@ const alphaRow: EnrichedReportRow = {
 	superSector: 'Industrials',
 	sectorPeersFiring: 2,
 	fundamentals: {
+		financials,
 		currency: 'EUR',
 		price: 82.4,
 		priceDate: RUN_DATE,
@@ -112,6 +120,7 @@ function makeReport(slug: string, top: number): EnrichedSignalReport {
 }
 
 const detailFixture: IssuerDetail = {
+	financials,
 	coverage: {}, shortSellers: unknownShortSellers(), assetId: '00000000-0000-4000-8000-000000000001', currency: 'EUR',
 	isin: 'DE0000000001',
 	ticker: 'AAA',

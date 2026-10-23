@@ -102,6 +102,8 @@
 	{/if}
 	<span
 		class="term-help__anchor"
+		role="group"
+		aria-label={term}
 		bind:this={anchorEl}
 		onpointerenter={() => {
 			hovered = true;
