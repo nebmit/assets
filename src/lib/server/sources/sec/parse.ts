@@ -35,10 +35,10 @@ export function acceptanceTime(value: string): string {
 }
 
 export function parseSubmissions(input: unknown, issuerCik: string): { filings: FilingRecord[]; files: { name: string; filingFrom: string; filingTo: string }[]; metadata: Record<string, unknown> } {
-	const obj = z.record(z.unknown()).parse(input);
+	const obj = z.record(z.string(), z.unknown()).parse(input);
 	if (obj.cik !== undefined && cik(obj.cik) !== issuerCik) throw new Error('submissions CIK mismatch');
-	const container = obj.filings ? z.record(z.unknown()).parse(obj.filings) : null;
-	const recent = z.record(z.array(z.unknown())).parse(container ? container.recent : obj);
+	const container = obj.filings ? z.record(z.string(), z.unknown()).parse(obj.filings) : null;
+	const recent = z.record(z.string(), z.array(z.unknown())).parse(container ? container.recent : obj);
 	const n = recent.accessionNumber?.length;
 	if (n === undefined || !recent.form || !recent.filingDate) throw new Error('missing submissions columns');
 	for (const values of Object.values(recent)) if (values.length !== n) throw new Error('unequal submissions column lengths');

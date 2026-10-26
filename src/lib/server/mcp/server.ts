@@ -24,9 +24,11 @@ const inputSchema = {
 	limit: z.number().int().min(1).max(50).default(10).describe('Max rows returned (rank order, best first).')
 };
 
+// Output objects are loose: zod 4 emits `additionalProperties: false` for plain objects,
+// and spec-compliant clients reject structuredContent that carries undeclared fields.
 const partyRole = z.enum(['executive', 'director', 'related_party', 'other']).describe('Normalized executive, director, related-party or other reporting role');
 
-const dealingRow = z.object({
+const dealingRow = z.looseObject({
 	party: z
 		.string()
 		.nullable()
@@ -54,7 +56,7 @@ const dealingRow = z.object({
 	qualificationReason: z.string().nullable(),
 	source: z.string(),
 	url: z.string().nullable(),
-	owners: z.array(z.object({ id: z.string(), name: z.string(), roles: z.array(z.string()) })),
+	owners: z.array(z.looseObject({ id: z.string(), name: z.string(), roles: z.array(z.string()) })),
 	price: z.number().nullable().describe('Filed average price per unit'),
 	transactionDate: z.string(),
 	publishedDate: z.string().describe('Publication date — decay and no-lookahead run off this'),
@@ -65,7 +67,7 @@ const dealingRow = z.object({
 });
 
 const insiderComponents = z
-	.object({
+	.looseObject({
 		fired: z.boolean().describe('Whether this signal passed its gate for the row'),
 		severity: z.number().nullable().describe('This component signal’s calibrated severity in [0,1]'),
 		sizeScore: z
@@ -100,7 +102,7 @@ const insiderComponents = z
 	.describe('Insider-conviction severity sub-components; null when the run has no row for this signal');
 
 const relativeValueComponents = z
-	.object({
+	.looseObject({
 		fired: z.boolean().describe('Whether this signal passed its gate for the row'),
 		severity: z.number().nullable().describe('This component signal’s calibrated severity in [0,1]'),
 		pe: z.number().nullable().describe('Trailing P/E from the latest close and point-in-time basic EPS'),
@@ -123,8 +125,8 @@ const relativeValueComponents = z
 	.nullable()
 	.describe('Relative-value severity sub-components; null when the run has no row for this signal');
 
-const rowSchema = z.object({
-	coverage: z.record(z.object({ state: z.string(), reason: z.string().nullable() })),
+const rowSchema = z.looseObject({
+	coverage: z.record(z.string(), z.looseObject({ state: z.string(), reason: z.string().nullable() })),
 	shortSellers: shortSellerAnalysisSchema.describe('Public short seller evidence saved with this run; disclosed totals are not total market short interest'),
 	rank: z.number().describe('1 = strongest'),
 	ticker: z.string().nullable(),
@@ -152,7 +154,7 @@ const rowSchema = z.object({
 				'idiosyncratic one.'
 		),
 	fundamentals: z
-		.object({
+		.looseObject({
 			currency: z.string(),
 			price: z.number().nullable().describe('Latest completed daily close in native currency'),
 			priceDate: z.string().nullable(),
@@ -173,7 +175,7 @@ const rowSchema = z.object({
 		.nullable()
 		.describe('Point-in-time fundamentals snapshot as of the run date'),
 	components: z
-		.object({ insiderConviction: insiderComponents, relativeValue: relativeValueComponents })
+		.looseObject({ insiderConviction: insiderComponents, relativeValue: relativeValueComponents })
 		.nullable()
 		.describe(
 			'Severity sub-components of the discovery signals for this instrument in this run — ' +
@@ -184,19 +186,19 @@ const rowSchema = z.object({
 		.array(dealingRow)
 		.describe('All directors’ dealings for the issuer in the signal window (last 30 days), newest first'),
 	news: z
-		.object({
+		.looseObject({
 			windowCount: z.number().describe('News items in the last 30 days up to the run date'),
-			latest: z.array(z.object({ headline: z.string(), publishedAt: z.string(), source: z.string(), newsType: z.string().nullable(), form: z.string().nullable(), accession: z.string().nullable(), url: z.string().nullable() }))
+			latest: z.array(z.looseObject({ headline: z.string(), publishedAt: z.string(), source: z.string(), newsType: z.string().nullable(), form: z.string().nullable(), accession: z.string().nullable(), url: z.string().nullable() }))
 		})
 		.nullable()
 		.describe(
 			'Recent headlines for the issuer — check these for regulatory or company events converging ' +
 				'on the same name; null when no news in the window'
 		),
-	rationale: z.record(z.unknown()).describe('Raw inputs behind the severity (incl. `reasons` on the feed)')
+	rationale: z.record(z.string(), z.unknown()).describe('Raw inputs behind the severity (incl. `reasons` on the feed)')
 });
 
-const outputSchema = {
+const outputSchema = z.looseObject({
 	signal: z.string().describe('Signal slug'),
 	runDate: z.string().describe('Run date the report is based on (YYYY-MM-DD)'),
 	universeSize: z.number().nullable().describe('Instruments in the run universe'),
@@ -204,21 +206,21 @@ const outputSchema = {
 	top: rowSchema
 		.array()
 		.describe('Fired signals, strongest first, truncated to `limit`; empty = nothing material happened')
-};
+});
 
 const detailInputSchema = {
 	assetId: z.string().uuid().describe('Stable assetId returned by the surfaced feed or asset catalog'),
 	runDate: runDateParam
 };
 
-const metricPoint = z.object({
+const metricPoint = z.looseObject({
 	value: z.number(),
 	periodEnd: z.string(),
 	publishedDate: z.string().describe('Point-in-time guard — when the value became public')
 });
 
-const detailOutputSchema = {
-	coverage: z.record(z.object({ state: z.string(), reason: z.string().nullable() })),
+const detailOutputSchema = z.looseObject({
+	coverage: z.record(z.string(), z.looseObject({ state: z.string(), reason: z.string().nullable() })),
 	shortSellers: shortSellerAnalysisSchema,
 	assetId: z.string().uuid(),
 	isin: z.string().nullable(),
@@ -229,7 +231,7 @@ const detailOutputSchema = {
 	superSector: z.string().nullable().describe('Coarse sector bucket used for peer grouping'),
 	runDate: z.string().describe('All history is bounded by this date (no lookahead)'),
 	monthlyCloses: z
-		.array(z.object({ date: z.string(), close: z.number() }))
+		.array(z.looseObject({ date: z.string(), close: z.number() }))
 		.describe('Last close per calendar month, ascending, ~36 months'),
 	epsBasicHistory: z.array(metricPoint).describe('Basic EPS history (shape shows recovery vs re-rating)'),
 	marketCapHistory: z.array(metricPoint),
@@ -242,12 +244,12 @@ const detailOutputSchema = {
 		),
 	insiderFollowThrough: z
 		.array(
-			z.object({
+			z.looseObject({
 				party: z.string(),
 				role: partyRole,
 				buyCount: z.number().describe('Counted share buys by this person in the stored history'),
 				buys: z.array(
-					z.object({
+					z.looseObject({
 						transactionDate: z.string(),
 						amount: z.number().nullable(),
 						currency: z.string().nullable(),
@@ -263,8 +265,8 @@ const detailOutputSchema = {
 			'Per named insider: prior counted buys and what the price did afterwards — a repeat dip ' +
 				'buyer with positive follow-through is a different signal from a first-time buyer'
 		),
-	news: z.array(z.object({ headline: z.string(), publishedAt: z.string(), source: z.string(), newsType: z.string().nullable(), form: z.string().nullable(), accession: z.string().nullable(), url: z.string().nullable() })).describe('Most recent headlines (max 10)')
-};
+	news: z.array(z.looseObject({ headline: z.string(), publishedAt: z.string(), source: z.string(), newsType: z.string().nullable(), form: z.string().nullable(), accession: z.string().nullable(), url: z.string().nullable() })).describe('Most recent headlines (max 10)')
+});
 
 // type alias (not interface) so it satisfies the SDK's structuredContent index signature
 type ToolReport = Omit<EnrichedSignalReport, 'top'> & {

@@ -250,6 +250,29 @@ describe('mcp server', () => {
 		});
 	});
 
+	it('accepts undeclared fields in structured output once validators are cached', async () => {
+		const coverage = {
+			prices: { state: 'qualified', reason: null },
+			eps: { state: 'unavailable', reason: 'pending', asOf: null, scope: 'class' as const, method: null, evidence: { facts: [], prices: [], actions: [], rules: ['sec-financial-resolver:1'] }, reasonCode: 'latest_filing_unprocessed' }
+		};
+		const client = await connect({
+			...happyDeps,
+			signalReport: async (slug, _runDate, top) => {
+				const report = makeReport(slug, top);
+				return { ...report, top: report.top.map((row) => ({ ...row, coverage })) };
+			},
+			issuerDetail: async () => ({ ...detailFixture, coverage })
+		});
+		// listTools caches the output validators that callTool then enforces
+		await client.listTools();
+		const feed = await client.callTool({ name: 'surface_latest', arguments: { limit: 2 } });
+		expect(feed.isError).toBeFalsy();
+		expect((feed.structuredContent as EnrichedSignalReport).top[0].coverage).toEqual(coverage);
+		const detail = await client.callTool({ name: 'issuer_detail', arguments: { assetId: detailFixture.assetId } });
+		expect(detail.isError).toBeFalsy();
+		expect((detail.structuredContent as IssuerDetail).coverage).toEqual(coverage);
+	});
+
 	it('passes an explicit runDate through to the report query', async () => {
 		let seen: { runDate: string; top: number } | undefined;
 		const client = await connect({
@@ -367,7 +390,7 @@ describe('mcp server', () => {
 			arguments: { limit: 999 }
 		});
 		expect(overLimit.isError).toBe(true);
-		expect(JSON.stringify(overLimit.content)).toContain('less than or equal to 50');
+		expect(JSON.stringify(overLimit.content)).toContain('<=50');
 
 		const badDate = await client.callTool({
 			name: 'signal_insider_conviction',

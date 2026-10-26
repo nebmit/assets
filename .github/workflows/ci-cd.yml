@@ -115,6 +115,7 @@ jobs:
       with:
         context: .
         target: web
+        pull: true
         platforms: linux/arm64
         push: true
         tags: ${{ steps.meta.outputs.tags }}
@@ -137,6 +138,7 @@ jobs:
       with:
         context: .
         target: worker
+        pull: true
         platforms: linux/arm64
         push: true
         tags: ${{ steps.meta-worker.outputs.tags }}

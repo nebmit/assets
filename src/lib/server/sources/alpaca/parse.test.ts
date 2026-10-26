@@ -14,6 +14,15 @@ describe('Alpaca observations', () => {
 		expect(() => parseBars({ bars: { WRONG: [bar] }, next_page_token: null }, new Set(['TEST']), '2026-03-09')).toThrow('Unexpected');
 		expect(() => parseBars({ bars: { TEST: [{ ...bar, c: 15 }] }, next_page_token: null }, new Set(['TEST']), '2026-03-09')).toThrow('OHLC');
 	});
+	it('rejects malformed values inside symbol and action records', () => {
+		expect(() => parseBars({ bars: { TEST: [{ ...bar, c: '11' }] }, next_page_token: null }, new Set(['TEST']), '2026-03-09')).toThrow();
+		expect(() => parseActions({ corporate_actions: { cash_dividends: [null] }, next_page_token: null })).toThrow();
+	});
+	it('preserves unknown fields in action metadata', () => {
+		const row = { id: 'u', symbol: 'TEST', ex_date: '2026-03-01', upstream: { reason: 'pending' } };
+		const result = parseActions({ corporate_actions: { spin_offs: [row] }, next_page_token: null });
+		expect(result.actions[0].metadata).toEqual(row);
+	});
 	it('records splits, paid cash evidence and unsupported actions distinctly', () => {
 		const result = parseActions({ corporate_actions: { forward_splits: [{ id: 's', symbol: 'TEST', ex_date: '2026-03-01', old_rate: 1, new_rate: 10 }], cash_dividends: [{ id: 'd', symbol: 'TEST', ex_date: '2026-03-01', rate: 0.5, foreign: false, payable_date: '2026-03-10' }], spin_offs: [{ id: 'u', symbol: 'TEST', ex_date: '2026-03-01' }] }, next_page_token: null });
 		expect(result.actions.map((a) => [a.ratio, a.currency, a.qualification])).toEqual([['10', null, 'qualified'], [null, 'USD', 'qualified'], [null, null, 'unqualified']]);

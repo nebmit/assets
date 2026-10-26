@@ -50,7 +50,7 @@ export interface FactResult { facts: NormalizedFact[]; issues: Record<string, nu
 
 /** Retain period-specific facts, never synthesize TTM or quarterly EPS from YTD. */
 export function normalizeFacts(input: unknown, issuerCik: string, payloadHash: string, cutoff: string): FactResult {
-	const doc = z.object({ cik: z.union([z.number(), z.string()]), facts: z.record(z.record(z.object({ units: z.record(z.array(z.unknown())) }))) }).parse(input);
+	const doc = z.object({ cik: z.union([z.number(), z.string()]), facts: z.record(z.string(), z.record(z.string(), z.object({ units: z.record(z.string(), z.array(z.unknown())) }))) }).parse(input);
 	if (cik(doc.cik) !== issuerCik) throw new Error('Company Facts CIK mismatch');
 	const result: FactResult = { facts: [], issues: {} };
 	const issue = (reason: string) => { result.issues[reason] = (result.issues[reason] ?? 0) + 1; };

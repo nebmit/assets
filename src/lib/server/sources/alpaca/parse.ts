@@ -5,7 +5,7 @@ import { isoDate } from '../../util.js';
 const number = z.number().finite();
 const bar = z.object({ t: z.string().datetime({ offset: true }), o: number.positive(), h: number.positive(), l: number.positive(), c: number.positive(), v: number.nonnegative().safe() });
 export function parseBars(input: unknown, allowed: ReadonlySet<string>, through: string) {
-	const page = z.object({ bars: z.record(z.array(bar)), next_page_token: z.string().nullable() }).parse(input);
+	const page = z.object({ bars: z.record(z.string(), z.array(bar)), next_page_token: z.string().nullable() }).parse(input);
 	const rows: { symbol: string; tradeDate: string; open: string; high: string; low: string; close: string; volume: number }[] = [];
 	for (const [symbol, bars] of Object.entries(page.bars)) {
 		if (!allowed.has(symbol)) throw new Error(`Unexpected Alpaca symbol ${symbol}`);
@@ -24,7 +24,7 @@ export interface ParsedAction {
 	qualification: string; metadata: Record<string, unknown>;
 }
 export function parseActions(input: unknown) {
-	const page = z.object({ corporate_actions: z.record(z.array(z.record(z.unknown()))), next_page_token: z.string().nullable() }).parse(input);
+	const page = z.object({ corporate_actions: z.record(z.string(), z.array(z.record(z.string(), z.unknown()))), next_page_token: z.string().nullable() }).parse(input);
 	const actions: ParsedAction[] = [];
 	for (const [type, rows] of Object.entries(page.corporate_actions)) for (const r of rows) {
 		const exDate = date.parse(r.ex_date ?? r.effective_date ?? r.process_date);
