@@ -83,7 +83,10 @@ export function parseIsoDate(input: string): string | null {
  * name is only used when the ISIN is absent so a rename cannot mint phantom rows.
  */
 export function parseShortPositionsCsv(csvText: string, strictColumns = false): ParsedShortPositions {
-	const records: Record<string, string>[] = parse(csvText, {
+	// The export does not escape quotes inside fields (Hebrew בע"מ, "Ltd."). Every field is quoted, so a quote with
+	// no comma, line break, BOM or quote on either side is literal; escape it rather than relaxing quote parsing globally.
+	const escaped = csvText.replace(/(?<=[^,\r\n"\uFEFF])"(?=[^,\r\n"])/g, '""');
+	const records: Record<string, string>[] = parse(escaped, {
 		delimiter: ',',
 		bom: true,
 		skip_empty_lines: true,

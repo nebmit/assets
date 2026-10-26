@@ -2,6 +2,7 @@
 import json
 import sys
 import resource
+import traceback
 from decimal import Decimal
 from datetime import timedelta
 from pathlib import Path
@@ -23,7 +24,7 @@ def extract(request):
     urls = request["urls"]
     entries = request["entrypoints"]
     # A local catalog preserves original URLs and relative imports without permitting network access.
-    options = RuntimeOptions(entrypointFile=json.dumps([{"ixDocumentSet": entries}]) if len(entries) > 1 else entries[0],
+    options = RuntimeOptions(entrypointFile=json.dumps([{"ixds": [{"file": entry} for entry in entries]}]) if len(entries) > 1 else entries[0],
                              internetConnectivity="offline", keepOpen=True, validate=True, calcs="c11r",
                              formulaAction="none", plugins="inlineXbrlDocumentSet|" + str(Path(__file__).resolve().parent / "vendor/edgar/transform"),
                              disablePersistentConfig=True, xdgConfigHome=str(root / "config"), cacheDirectory=str(root / "cache"), logFile="logToBuffer", logFormat="[%(messageCode)s] %(message)s")
@@ -31,8 +32,14 @@ def extract(request):
         # Install the URL catalog before model loading. URL resolution stays inside the manifest.
         from arelle import WebCache
         original = WebCache.WebCache.getfilename
+        from arelle.UrlUtil import IXDS_SURROGATE
         def local_file(cache, url, *args, **kwargs):
+            # The document-set surrogate is synthesized in memory and never read; its member documents resolve through this catalog.
+            if IXDS_SURROGATE in str(url):
+                return str(url)
             canonical = str(url).split("#", 1)[0]
+            if canonical.endswith("/_IXDS") and kwargs.get("filenameOnly"):
+                return str(root / "_IXDS")
             if canonical in urls:
                 return str(root / urls[canonical])
             if canonical.startswith(("http://", "https://")):
@@ -115,5 +122,7 @@ if __name__ == "__main__":
         print("memory_limit", file=sys.stderr)
         sys.exit(72)
     except Exception as error:
-        print(f"extraction_failed: {error}", file=sys.stderr)
+        # The caller keeps the stderr tail, so the summary goes last; the type name keeps bare exceptions readable.
+        traceback.print_exc()
+        print(f"extraction_failed: {type(error).__name__}: {error}", file=sys.stderr)
         sys.exit(1)

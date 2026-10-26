@@ -11,17 +11,18 @@ import { XbrlError, type FilingPackage } from './types.js';
 /** SGML envelopes only: XBRL interpretation belongs exclusively to Arelle. */
 export async function submissionDocuments(file: string): Promise<{ name: string; type: string; body: string }[]> {
 	const result: { name: string; type: string; body: string }[] = [];
-	let name = '', type = '', body = '', inDocument = false, inText = false, keep = false;
+	// Collect lines and count bytes incrementally: re-measuring the joined body per line is quadratic.
+	let name = '', type = '', lines: string[] = [], bytes = 0, inDocument = false, inText = false, keep = false;
 	for await (const line of createInterface({ input: await openStored(file), crlfDelay: Infinity })) {
-		if (line === '<DOCUMENT>') { inDocument = true; name = ''; type = ''; body = ''; continue; }
+		if (line === '<DOCUMENT>') { inDocument = true; name = ''; type = ''; lines = []; bytes = 0; continue; }
 		if (!inDocument) continue;
 		if (line.startsWith('<TYPE>')) type = line.slice(6).trim();
 		if (line.startsWith('<FILENAME>')) name = line.slice(10).trim();
 		if (line === '<TEXT>') { inText = true; keep = /\.(?:xhtml|html|htm|xml|xsd)$/i.test(name); continue; }
 		if (line === '<XBRL>' || line === '</XBRL>') continue;
 		if (line === '</TEXT>') { inText = false; continue; }
-		if (line === '</DOCUMENT>') { if (keep && name) result.push({ name, type, body: body.trimStart() }); inDocument = false; keep = false; continue; }
-		if (inText && keep) { body += line + '\n'; if (Buffer.byteLength(body) > 64 * 1024 ** 2) throw new XbrlError('document_size_limit', name); }
+		if (line === '</DOCUMENT>') { if (keep && name) result.push({ name, type, body: (lines.join('\n') + (lines.length ? '\n' : '')).trimStart() }); inDocument = false; keep = false; continue; }
+		if (inText && keep) { lines.push(line); bytes += Buffer.byteLength(line) + 1; if (bytes > 64 * 1024 ** 2) throw new XbrlError('document_size_limit', name); }
 	}
 	if (inDocument) throw new XbrlError('unreadable_document', 'Incomplete SGML document');
 	return result;

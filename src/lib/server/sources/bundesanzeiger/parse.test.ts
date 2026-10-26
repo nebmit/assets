@@ -62,6 +62,21 @@ describe('parseShortPositionsCsv', () => {
 		expect(() => parseShortPositionsCsv(mutated)).toThrow(/unexpected NLP CSV header/);
 	});
 
+	it('keeps an unescaped quote inside a quoted issuer name', () => {
+		// real export row: Hebrew בע"מ ("Ltd.") writes its gershayim as a bare ASCII quote
+		const header = fixture.split('\r\n')[0];
+		const row = '"Arrowstreet Capital, Limited Partnership","אלפא תאו מדיקל בע"מ","IL0011839383","0,48","2026-10-08"';
+		const { rows, unparseable } = parseShortPositionsCsv(`${header}\r\n${row}\r\n`);
+		expect(unparseable).toBe(0);
+		expect(rows).toHaveLength(1);
+		expect(rows[0]).toMatchObject({
+			holderNameRaw: 'Arrowstreet Capital, Limited Partnership',
+			issuerNameRaw: 'אלפא תאו מדיקל בע"מ',
+			isin: 'IL0011839383',
+			positionPct: 0.48
+		});
+	});
+
 	it('keeps sub-threshold rows — they are the implicit position closes', () => {
 		const closing = parsed.rows.find((r) => r.isin === 'DE000A2YN900');
 		expect(closing?.positionPct).toBe(0.42);
