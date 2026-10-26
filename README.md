@@ -152,12 +152,34 @@ The daily worker includes SEC ingestion for the S&P 500 and S&P MidCap 400 track
 
 ## Production
 
-One image (see `Dockerfile`) serves both containers: the SvelteKit server
-(`node build`) and the worker (`node build/worker.js schedule`). Production
-composition is owned by the infra repo at
-`services/assets/compose.caddy.yml`; this repo's `docker-compose.yml` is only
-for the local Postgres dependency. The worker applies migrations at boot and
-runs the pipeline daily at 06:30 Europe/Berlin by default.
+CI publishes two images from `Dockerfile`: `ghcr.io/nebmit/assets` (target
+`web`, the SvelteKit server via `node build`) and `ghcr.io/nebmit/assets-worker`
+(target `worker`, Node plus the Python/arelle XBRL runtime, running
+`node build/worker.js schedule`). They deploy as separate infra apps, composed
+in the infra repo at `services/assets/compose.caddy.yml` and
+`services/assets-worker/compose.caddy.yml`; this repo's `docker-compose.yml` is
+only for the local Postgres dependency. The worker needs `APCA_API_KEY_ID` /
+`APCA_API_SECRET_KEY` in its environment, applies migrations at boot and runs
+the pipeline daily at 06:30 Europe/Berlin by default.
+
+### Archive storage
+
+Raw payloads and content-addressed evidence are stored as gzip (level 9), with
+streaming compression for large SEC submissions. Logical filenames and SHA-256
+hashes still identify the original, uncompressed content. Archive readers detect
+the encoding automatically; XBRL extraction receives decompressed temporary files.
+This trades additional compression CPU for smaller persistent storage without
+removing history. No additional configuration or database migration is needed.
+Use `gzip -dc <file>` to inspect a compressed archive manually, regardless of its
+filename extension. Deploy the updated worker before ingesting new archives;
+older worker versions cannot read the compressed objects.
+
+`RAW_RETENTION_DAYS` only applies to dated raw archives, not content-addressed
+evidence needed for replay. Compression reduces storage per object but is not a
+hard cap on retained history. PostgreSQL retains its native JSON/text compression
+and existing history; this change does not delete database records. Deleting raw
+files does not reset database processing state or restore evidence needed for
+offline replay.
 
 ### Short seller analysis
 

@@ -61,6 +61,7 @@ jobs:
 
     outputs:
       image-digest: ${{ steps.build.outputs.digest }}
+      worker-digest: ${{ steps.build-worker.outputs.digest }}
       image-tag: ${{ steps.version.outputs.version }}
       registry: ${{ env.REGISTRY }}
       image-name: ${{ env.IMAGE_NAME }}
@@ -113,12 +114,35 @@ jobs:
       uses: docker/build-push-action@v7
       with:
         context: .
+        target: web
         platforms: linux/arm64
         push: true
         tags: ${{ steps.meta.outputs.tags }}
         labels: ${{ steps.meta.outputs.labels }}
-        cache-from: type=gha
-        cache-to: type=gha,mode=max
+        cache-from: type=gha,scope=web
+        cache-to: type=gha,mode=max,scope=web
+
+    - name: Extract worker metadata
+      id: meta-worker
+      uses: docker/metadata-action@v6
+      with:
+        images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-worker
+        tags: |
+          type=sha,prefix={{branch}}-
+          type=raw,value=latest,enable={{is_default_branch}}
+
+    - name: Build and push worker image
+      id: build-worker
+      uses: docker/build-push-action@v7
+      with:
+        context: .
+        target: worker
+        platforms: linux/arm64
+        push: true
+        tags: ${{ steps.meta-worker.outputs.tags }}
+        labels: ${{ steps.meta-worker.outputs.labels }}
+        cache-from: type=gha,scope=worker
+        cache-to: type=gha,mode=max,scope=worker
 
     - name: Run Trivy vulnerability scanner
       uses: aquasecurity/trivy-action@v0.36.0
@@ -136,6 +160,25 @@ jobs:
       uses: github/codeql-action/upload-sarif@v4
       with:
         sarif_file: 'trivy-results.sarif'
+        category: web
+
+    - name: Run Trivy vulnerability scanner on worker image
+      uses: aquasecurity/trivy-action@v0.36.0
+      env:
+        TRIVY_USERNAME: ${{ github.actor }}
+        TRIVY_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
+        TRIVY_PLATFORM: linux/arm64
+        TRIVY_IMAGE_SRC: remote
+      with:
+        image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-worker@${{ steps.build-worker.outputs.digest }}
+        format: 'sarif'
+        output: 'trivy-worker-results.sarif'
+
+    - name: Upload worker Trivy scan results to GitHub Security tab
+      uses: github/codeql-action/upload-sarif@v4
+      with:
+        sarif_file: 'trivy-worker-results.sarif'
+        category: worker
 
   dispatch-deploy:
     needs: build-and-push
@@ -149,6 +192,7 @@ jobs:
           echo "Image tag: ${{ needs.build-and-push.outputs.image-tag }}"
           echo "Full image: ${{ needs.build-and-push.outputs.registry }}/${{ needs.build-and-push.outputs.image-name }}:${{ needs.build-and-push.outputs.image-tag }}"
           echo "Image by digest: ${{ needs.build-and-push.outputs.registry }}/${{ needs.build-and-push.outputs.image-name }}@${{ needs.build-and-push.outputs.image-digest }}"
+          echo "Worker image by digest: ${{ needs.build-and-push.outputs.registry }}/${{ needs.build-and-push.outputs.image-name }}-worker@${{ needs.build-and-push.outputs.worker-digest }}"
       
       - name: Notify infra repo
         uses: peter-evans/repository-dispatch@v4
@@ -156,4 +200,12 @@ jobs:
           repository: nebmit/infra
           event-type: app-deploy
           client-payload: '{"app":"assets","digest":"${{ needs.build-and-push.outputs.image-digest }}"}'
+          token: ${{ secrets.INFRA_DISPATCH_PAT }}
+
+      - name: Notify infra repo (worker)
+        uses: peter-evans/repository-dispatch@v4
+        with:
+          repository: nebmit/infra
+          event-type: app-deploy
+          client-payload: '{"app":"assets-worker","digest":"${{ needs.build-and-push.outputs.worker-digest }}"}'
           token: ${{ secrets.INFRA_DISPATCH_PAT }}
