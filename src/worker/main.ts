@@ -26,6 +26,7 @@ import {
 } from '../lib/server/signals/report.js';
 import { isoDate } from '../lib/server/util.js';
 import { pruneRawArchive } from '../lib/server/rawArchive.js';
+import { pruneSecArchive } from '../lib/server/sources/sec/retention.js';
 
 function arg(name: string): string | undefined {
 	const prefix = `--${name}=`;
@@ -57,6 +58,16 @@ async function runPipeline(jobNames: 'all' | string, runDate: string): Promise<b
 			if (removed > 0) console.log(`pruned ${removed} raw archive day(s) past retention`);
 		} catch (err) {
 			console.error('raw archive prune failed:', err);
+		}
+	}
+	const secResults = results.filter((r) => jobs.find((j) => j.name === r.job)?.source === 'sec');
+	if (secResults.length && secResults.every((r) => r.ok || r.stats)) {
+		// SEC ingestion finished; drop archive objects the pipeline no longer reads. A cleanup hiccup never fails the run.
+		try {
+			const stats = await pruneSecArchive(getDb(), runDate);
+			if (stats) console.log(`pruned SEC archive ${JSON.stringify(stats)}`);
+		} catch (err) {
+			console.error('SEC archive prune failed:', err);
 		}
 	}
 	return failures === 0;
@@ -136,16 +147,6 @@ async function main(): Promise<void> {
 	if (arg('date')) secDate.parse(arg('date'));
 	if (command === 'schedule' && arg('job')) fail('schedule selects job groups with --source, not --job');
 	switch (command) {
-		case 'reprocess': {
-			const output = arg('output');
-			if (!output) fail('reprocess requires --output=path for its candidate report');
-			const { replayFundamentals } = await import('../lib/server/sources/sec/xbrl/replay.js');
-			await runMigrations();
-			const result = await replayFundamentals({ db: getDb(), runDate: arg('date') ?? isoDate(new Date(), config().TZ), log: console.log, ...secOptions() }, { output, accession: arg('accession'), baseline: arg('baseline'), acquire: process.argv.includes('--acquire'), retryFailed: process.argv.includes('--retry-failed'), allPeriods: process.argv.includes('--all-periods') });
-			console.log(JSON.stringify(result));
-			if (result.failed) process.exitCode = 1;
-			break;
-		}
 		case 'migrate':
 			await runMigrations();
 			console.log('migrations applied');
@@ -163,7 +164,7 @@ async function main(): Promise<void> {
 			await report();
 			break;
 		default:
-			throw new Error(`unknown command "${command}" (expected: schedule | run | backfill | report | migrate | reprocess)`);
+			throw new Error(`unknown command "${command}" (expected: schedule | run | backfill | report | migrate)`);
 	}
 }
 

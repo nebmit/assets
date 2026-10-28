@@ -98,7 +98,10 @@ export async function persistFiling(ctx: JobContext, filing: Filing, content: st
 	});
 }
 
-/** Current annual/quarterly filings carry their comparative periods; unchanged older documents stay archived. */
+/** Annual and quarterly filings are tracked for four full calendar years. */
+export function financialCutoff(runDate: string): string { return `${Number(runDate.slice(0, 4)) - 4}-01-01`; }
+
+/** Current annual/quarterly filings carry their comparative periods; older documents are not read again. */
 export function financialDocuments(filings: Filing[], runDate: string): Filing[] {
 	const eligible = filings.filter((f) => f.status === 'processed' && f.filedDate <= runDate && /^10-(K|Q)(\/A)?$/.test(f.form));
 	const selected = new Map<number, Filing>();

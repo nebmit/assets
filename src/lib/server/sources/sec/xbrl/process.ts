@@ -1,19 +1,45 @@
 import { canonicalJson } from './canonical.js';
-import { readStoredText } from '../../../storage.js';
+import { readStoredText, storedExists } from '../../../storage.js';
 import { and, eq, sql } from 'drizzle-orm';
 import type { JobContext } from '../../../pipeline/types.js';
 import { fundamental, instrument, listing, secExtraction, secProcessing, sourceFiling } from '../../../db/schema.js';
-import { archiveEvidence, hash, SecTransportError, SecAccessError, type Evidence } from '../client.js';
+import { archiveEvidence, fetchFinancialSubmission, hash, SecTransportError, SecAccessError, type Evidence } from '../client.js';
 import { buildPackage, verifyPackage } from './package.js';
 import { extractPackage } from './extract.js';
-import { artifactSchema, PARSER_CONFIG, PARSER_VERSION, RESOLVER_VERSION, XbrlError } from './types.js';
+import { artifactSchema, PARSER_CONFIG, PARSER_VERSION, RESOLVER_VERSION, XbrlError, type FilingPackage } from './types.js';
 import { normalizeArtifact } from './normalize.js';
 import { publicTime, type Filing } from '../store.js';
 export const configHash = hash(canonicalJson(PARSER_CONFIG));
 export const globalFailure = (error: unknown): boolean => error instanceof Error && ('query' in error || 'cause' in error && globalFailure(error.cause)) || error instanceof XbrlError && ['evidence_integrity', 'artifact_version', 'parser_unavailable'].includes(error.code) || ['ENOSPC','EACCES','EIO','ECONNREFUSED'].includes(String((error as NodeJS.ErrnoException)?.code ?? ''));
 
+/** The archive keeps only what the SEC archive prune retains; a pruned submission is re-downloaded and must still match. */
+async function submission(filing: Filing, source: Evidence): Promise<Evidence> {
+	if (await storedExists(source.path)) return source;
+	const { evidence } = await fetchFinancialSubmission(filing.url, filing.externalId, true);
+	if (evidence.hash !== source.hash) throw new XbrlError('missing_filing_evidence', 'SEC submission changed since it was recorded; awaiting sec_filings', true);
+	return { ...source, path: evidence.path };
+}
+
+/** Pruned package documents are rebuilt from the submission; content addressing keeps the package hash stable. */
+async function filingPackage(filing: Filing, source: Evidence, previous: FilingPackage | null): Promise<FilingPackage> {
+	if (previous) {
+		try { await verifyPackage(previous); return previous; }
+		catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }
+	}
+	const manifest = await buildPackage({ accession: filing.externalId, acceptedAt: filing.acceptedAt?.toISOString() ?? null, form: filing.form, evidence: await submission(filing, source) });
+	await verifyPackage(manifest);
+	return manifest;
+}
+
+async function extractArtifact(manifest: FilingPackage, packageHash: string) {
+	const artifact = await extractPackage(manifest);
+	if (!artifact.facts.length || artifact.diagnostics.some((d) => /xmlSchema:syntax|IOerror|FileNotLoadable|missingReferences/.test(d.code))) throw new XbrlError('unreadable_document', 'Document or required taxonomy could not be loaded');
+	if (artifact.contexts.some((c) => !c.valid)) throw new XbrlError('invalid_context', 'Invalid XBRL context');
+	return { artifact, evidence: await archiveEvidence(`sec:extraction:${packageHash}:${PARSER_VERSION}`, JSON.stringify(artifact)) };
+}
+
 /** Stage checkpoints are committed independently. Successful observations are immutable. */
-export async function processFinancialFiling(ctx: JobContext, filing: Filing, offline = false): Promise<{ ok: boolean; facts: number; issues: Record<string, number> }> {
+export async function processFinancialFiling(ctx: JobContext, filing: Filing): Promise<{ ok: boolean; facts: number; issues: Record<string, number> }> {
 	if (!filing.issuerId) throw new Error('financial filing has no issuer');
 	const inputHash = String(filing.metadata.currentHash ?? 'missing');
 	const where = and(eq(secProcessing.filingId, filing.id), eq(secProcessing.inputHash, inputHash), eq(secProcessing.parserVersion, PARSER_VERSION), eq(secProcessing.resolverVersion, RESOLVER_VERSION), eq(secProcessing.configHash, configHash));
@@ -24,18 +50,19 @@ export async function processFinancialFiling(ctx: JobContext, filing: Filing, of
 	try {
 		const source = (filing.metadata.documents as Evidence[] | undefined)?.find((d) => d.hash === inputHash);
 		if (!source) throw new XbrlError('missing_filing_evidence', 'Archived submission missing', true);
-		const manifest = previous?.manifest ?? await buildPackage({ accession: filing.externalId, acceptedAt: filing.acceptedAt?.toISOString() ?? null, form: filing.form, evidence: source, offline });
-		await verifyPackage(manifest);
+		const manifest = await filingPackage(filing, source, previous?.manifest ?? null);
 		await ctx.db.update(secProcessing).set({ manifest, stage: 'extract', updatedAt: new Date() }).where(where);
 		const packageHash = hash(canonicalJson(manifest));
 		let [extraction] = await ctx.db.select().from(secExtraction).where(and(eq(secExtraction.filingId, filing.id), eq(secExtraction.packageHash, packageHash), eq(secExtraction.parserVersion, PARSER_VERSION), eq(secExtraction.configHash, configHash)));
 		if (!extraction) {
-			const artifact = await extractPackage(manifest);
-			if (!artifact.facts.length || artifact.diagnostics.some((d) => /xmlSchema:syntax|IOerror|FileNotLoadable|missingReferences/.test(d.code))) throw new XbrlError('unreadable_document', 'Document or required taxonomy could not be loaded');
-			if (artifact.contexts.some((c) => !c.valid)) throw new XbrlError('invalid_context', 'Invalid XBRL context');
-			const evidence = await archiveEvidence(`sec:extraction:${packageHash}:${PARSER_VERSION}`, JSON.stringify(artifact));
+			const { artifact, evidence } = await extractArtifact(manifest, packageHash);
 			[extraction] = await ctx.db.insert(secExtraction).values({ filingId: filing.id, packageHash, parserVersion: PARSER_VERSION, configHash, manifest, artifact: evidence, diagnostics: artifact.diagnostics, observedAt: new Date(Math.max(...manifest.documents.map((d) => Date.parse(d.observedAt)))) }).onConflictDoNothing().returning();
 			if (!extraction) [extraction] = await ctx.db.select().from(secExtraction).where(and(eq(secExtraction.filingId, filing.id), eq(secExtraction.packageHash, packageHash), eq(secExtraction.parserVersion, PARSER_VERSION), eq(secExtraction.configHash, configHash)));
+		} else if (!(await storedExists(extraction.artifact.path))) {
+			// A pruned artifact is re-extracted; the recorded extraction stays authoritative.
+			const { evidence } = await extractArtifact(manifest, packageHash);
+			if (evidence.hash !== extraction.artifact.hash) throw new XbrlError('artifact_mismatch', 'Re-extracted artifact differs from the recorded extraction');
+			extraction = { ...extraction, artifact: { ...extraction.artifact, path: evidence.path } };
 		}
 		await ctx.db.update(secProcessing).set({ extractionId: extraction.id, stage: 'normalize', updatedAt: new Date() }).where(where);
 		const content = await readStoredText(extraction.artifact.path);

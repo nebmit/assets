@@ -46,7 +46,7 @@ export function dependencyUrls(body: string, base: string): string[] {
 	walk(parser.parse(body)); return [...urls].sort();
 }
 
-export async function buildPackage(input: { accession: string; acceptedAt: string | null; form: string; evidence: Evidence; root?: string; offline?: boolean }): Promise<FilingPackage> {
+export async function buildPackage(input: { accession: string; acceptedAt: string | null; form: string; evidence: Evidence; root?: string }): Promise<FilingPackage> {
 	const documents = await submissionDocuments(input.evidence.path);
 	const base = new URL(`https://www.sec.gov/Archives/edgar/data/${Number(input.accession.slice(0, 10))}/${input.accession.replaceAll('-', '')}/`);
 	// The archive CIK can differ from the accession prefix. The source URL is authoritative.
@@ -74,7 +74,6 @@ export async function buildPackage(input: { accession: string; acceptedAt: strin
 			try { evidence = JSON.parse(await readFile(index, 'utf8')) as Evidence; }
 			catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }
 			if (!evidence) {
-				if (input.offline) throw new XbrlError('missing_dependency', url);
 				const body = await fetchSecText(url.replace(/^http:/, 'https:'));
 				evidence = await archiveEvidence(url, body, input.root);
 				await mkdir(cache, { recursive: true }); const temporary = index + '.' + randomUUID(); await writeFile(temporary, JSON.stringify(evidence)); await rename(temporary, index);

@@ -1,5 +1,5 @@
 import { createWriteStream } from 'node:fs';
-import { open } from 'node:fs/promises';
+import { access, open } from 'node:fs/promises';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { createGzip, createGunzip } from 'node:zlib';
@@ -21,6 +21,11 @@ export async function openStored(file: string): Promise<Readable> {
 		return bytesRead === 2 && magic[0] === 0x1f && magic[1] === 0x8b
 			? source.compose(createGunzip()) : source;
 	} catch (error) { await handle.close(); throw error; }
+}
+
+/** Pruned archive objects are expected to be missing; any other error still fails loudly. */
+export async function storedExists(file: string): Promise<boolean> {
+	return access(file).then(() => true, (error: NodeJS.ErrnoException) => { if (error.code === 'ENOENT') return false; throw error; });
 }
 
 export async function readStored(file: string): Promise<Buffer> {

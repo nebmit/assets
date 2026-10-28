@@ -148,7 +148,7 @@ variables take precedence. Configuration (see `.env.example`): `DATABASE_URL`,
 `APCA_API_KEY_ID` / `APCA_API_SECRET_KEY` for Alpaca, plus the
 SSO/OAuth wiring `AUTH_ORIGIN`, `RESOURCE_URL`, `INTROSPECTION_SECRET`.
 
-The daily worker includes SEC ingestion for the S&P 500 and S&P MidCap 400 tracking-fund universe. Both source groups use the same schedule, defaulting to 06:30 Europe/Berlin. All ingestion precedes one combined snapshot and signal run, followed by performance. SEC backlog work is resumable and bounded in ordinary runs and scheduled cycles. `--source=sec` is an optional source filter, not required to enable SEC. See [SEC ingestion](docs/sec-ingestion.md) for coverage, index selection and replay commands.
+The daily worker includes SEC ingestion for the S&P 500 and S&P MidCap 400 tracking-fund universe. Both source groups use the same schedule, defaulting to 06:30 Europe/Berlin. All ingestion precedes one combined snapshot and signal run, followed by performance. SEC backlog work is resumable and bounded in ordinary runs and scheduled cycles. `--source=sec` is an optional source filter, not required to enable SEC. See [SEC ingestion](docs/sec-ingestion.md) for coverage and index selection.
 
 ## Production
 
@@ -168,18 +168,33 @@ Raw payloads and content-addressed evidence are stored as gzip (level 9), with
 streaming compression for large SEC submissions. Logical filenames and SHA-256
 hashes still identify the original, uncompressed content. Archive readers detect
 the encoding automatically; XBRL extraction receives decompressed temporary files.
-This trades additional compression CPU for smaller persistent storage without
-removing history. No additional configuration or database migration is needed.
+This trades additional compression CPU for smaller persistent storage.
+No additional configuration or database migration is needed.
 Use `gzip -dc <file>` to inspect a compressed archive manually, regardless of its
 filename extension. Deploy the updated worker before ingesting new archives;
 older worker versions cannot read the compressed objects.
 
-`RAW_RETENTION_DAYS` only applies to dated raw archives, not content-addressed
-evidence needed for replay. Compression reduces storage per object but is not a
-hard cap on retained history. PostgreSQL retains its native JSON/text compression
-and existing history; this change does not delete database records. Deleting raw
-files does not reset database processing state or restore evidence needed for
-offline replay.
+`RAW_RETENTION_DAYS` only applies to dated raw archives. Extracted data lives in
+PostgreSQL; the content-addressed SEC archive under `sec/objects` keeps only what
+the pipeline reads again:
+
+- the current submission of each issuer's latest 10-K and 10-Q (plus their
+  amendments) in the four-year window, i.e. the filings `sec_fundamentals`
+  processes, and their XBRL extraction artifacts, so resolver-only changes reuse
+  the extraction instead of re-running Arelle;
+- package documents of filings still being processed or retried;
+- the latest Company Facts per issuer and every object in the taxonomy catalog.
+
+Other filing bodies (8-K, ownership forms, older reports) are hashed while
+streaming and never written; the database records their hash and the object path
+they would have. After a run in which SEC ingestion finished, the worker deletes
+unretained objects and leaked `.write-*` staging directories older than two days,
+alongside the dated raw-archive retention. Retention covers
+all included issuers regardless of `--cik`/`--indices`. If a pruned submission is
+needed again (for example after a parser or configuration change), it is
+re-downloaded from the SEC and must match its recorded hash; completed packages
+are rebuilt from the submission. Deleting archive files never deletes database
+records.
 
 ### Short seller analysis
 

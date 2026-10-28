@@ -9,7 +9,7 @@ export interface IssuerSelection {
 
 export interface JobContext {
 	db: Db;
-	/** Optional SEC replay filter; never changes the German universe. */
+	/** Optional SEC issuer filter; never changes the German universe. */
 	cik?: string;
 	issuerSelection?: IssuerSelection;
 	/** Calendar date (Europe/Berlin) this pipeline run is for. */

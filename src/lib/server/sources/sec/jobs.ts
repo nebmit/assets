@@ -2,8 +2,7 @@ import { processFinancialFiling, globalFailure } from './xbrl/process.js';
 import { PARSER_VERSION, RESOLVER_VERSION } from './xbrl/types.js';
 import { verifyUnavailableFiling } from './unavailable.js';
 import { HttpError } from '../../http.js';
-import { access } from 'node:fs/promises';
-import { readStoredText } from '../../storage.js';
+import { readStoredText, storedExists } from '../../storage.js';
 import { isDeepStrictEqual } from 'node:util';
 import { publishSecMemberships, symbolKey } from './universe.js';
 import { fetchIndexSnapshots, resolveIndexCiks } from './indices.js';
@@ -13,15 +12,15 @@ import { z } from 'zod';
 import { issuer, sourceFiling, ingestionRun, newsItem, assetSnapshot, signalRun, instrument, secProcessing, secExtraction } from '../../db/schema.js';
 import type { Job, JobContext, JobStats } from '../../pipeline/types.js';
 import { addDays } from '../../util.js';
-import { archiveEvidence, fetchFinancialSubmission, fetchSecText, readZip, SecAccessError, type Evidence } from './client.js';
+import { archiveEvidence, fetchFinancialSubmission, fetchSecText, hashEvidence, readZip, SecAccessError, type Evidence } from './client.js';
 import { classifyIssuer, financialForm, ownershipForm, parseDirectory, parseMasterIndex, parseInsiderDataset, parseSubmissions, parseTickers, type Listing } from './parse.js';
-import { recordCompanyFactsComparison, financialDocuments, persistFiling, persistNews, SEC_NEWS_VERSION, rememberFiling, updateIssuerMetadata } from './store.js';
+import { recordCompanyFactsComparison, financialCutoff, financialDocuments, persistFiling, persistNews, SEC_NEWS_VERSION, rememberFiling, updateIssuerMetadata } from './store.js';
+import { financialSelection, financialWindow } from './retention.js';
 
 export const SEC_SUBMISSIONS_ZIP = 'https://www.sec.gov/Archives/edgar/daily-index/bulkdata/submissions.zip';
 export const SEC_FACTS_ZIP = 'https://www.sec.gov/Archives/edgar/daily-index/xbrl/companyfacts.zip';
 const tickerUrl = 'https://www.sec.gov/files/company_tickers_exchange.json';
 const directoryRoot = 'https://www.nasdaqtrader.com/dynamic/SymDir/';
-function financialCutoff(runDate: string): string { return `${Number(runDate.slice(0, 4)) - 4}-01-01`; }
 function ownershipCutoff(runDate: string): string { return addDays(runDate, -366); }
 const entities = selectedEntities;
 async function included(ctx: JobContext) { return (await entities(ctx)).filter((r) => r.secMetadata?.status === 'included'); }
@@ -185,6 +184,9 @@ async function processFilings(ctx: JobContext, ownership: boolean): Promise<JobS
 	const rows = await ctx.db.select().from(sourceFiling).where(and(eq(sourceFiling.source, 'sec'), inArray(sourceFiling.status, ['pending', 'error']), filingScope(ctx, ids)));
 	const queue = rows.filter((f) => f.filedDate <= ctx.runDate && ownershipForm.test(f.form) === ownership).sort((a, b) => b.filedDate.localeCompare(a.filedDate));
 	ctx.log(`${ownership ? 'ownership' : 'financial/news'} queue: ${queue.length} filings for ${ids.length} issuers`);
+	// Only the filings sec_fundamentals will read are written to the archive; the rest are hashed in flight.
+	const queuedIssuers = [...new Set(queue.flatMap((f) => f.issuerId === null ? [] : [f.issuerId]))];
+	const retain = ownership || !queuedIssuers.length ? new Set<number>() : financialSelection(await ctx.db.select().from(sourceFiling).where(and(financialWindow(ctx.runDate), inArray(sourceFiling.issuerId, queuedIssuers))), ctx.runDate);
 	let processed = 0, failed = 0, unavailable = 0, cursor = 0;
 	let accessError: SecAccessError | undefined;
 	async function consume() {
@@ -193,9 +195,9 @@ async function processFilings(ctx: JobContext, ownership: boolean): Promise<JobS
 			try {
 				if (ownership) {
 					const text = await fetchSecText(f.url);
-					await persistFiling(ctx, f, text, await archiveEvidence(f.url, text));
+					await persistFiling(ctx, f, text, hashEvidence(f.url, text));
 				} else {
-					const { header, evidence } = await fetchFinancialSubmission(f.url, f.externalId);
+					const { header, evidence } = await fetchFinancialSubmission(f.url, f.externalId, retain.has(f.id));
 					await persistFiling(ctx, f, header, evidence);
 				}
 				processed++;
@@ -240,11 +242,11 @@ export async function repairNews(ctx: JobContext): Promise<{ repaired: number; f
 	let repaired = 0, failed = 0;
 	for (const { filing } of rows) {
 		try {
+			// News needs only the recorded evidence, not the archived body.
 			const evidence = (filing.metadata.documents as Evidence[] | undefined)?.find((e) => e.hash === filing.metadata.currentHash);
-			const archived = evidence && await access(evidence.path).then(() => true, () => false);
-			if (evidence && archived) await persistNews(ctx, filing, evidence);
+			if (evidence) await persistNews(ctx, filing, evidence);
 			else {
-				const { header, evidence: fetched } = await fetchFinancialSubmission(filing.url, filing.externalId);
+				const { header, evidence: fetched } = await fetchFinancialSubmission(filing.url, filing.externalId, false);
 				await persistFiling(ctx, filing, header, fetched);
 			}
 			repaired++;
@@ -307,7 +309,7 @@ export const secFundamentalsJob: Job = {
 			}
 			try {
 				const cached = entity.secMetadata?.factsEvidence as Evidence | undefined;
-				if (cached && cached.observedAt.slice(0, 10) >= (filings[0]?.filedDate ?? '') && await access(cached.path).then(() => true, (error: NodeJS.ErrnoException) => { if (error.code === 'ENOENT') return false; throw error; })) {
+				if (cached && cached.observedAt.slice(0, 10) >= (filings[0]?.filedDate ?? '') && await storedExists(cached.path)) {
 					await recordCompanyFactsComparison(ctx, entity, JSON.parse(await readStoredText(cached.path)), cached, financialCutoff(ctx.runDate));
 				} else {
 					const fetched = await jsonEvidence(`https://data.sec.gov/api/xbrl/companyfacts/CIK${entity.cik}.json`);

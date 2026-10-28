@@ -1,7 +1,7 @@
 import { openStored, writeStored } from '../../storage.js';
 import { parseFinancialHeader } from './filingHeader.js';
 import { createHash } from 'node:crypto';
-import { mkdir, open, rename, rm, mkdtemp, link } from 'node:fs/promises';
+import { mkdir, open, rename, rm, mkdtemp, link, utimes } from 'node:fs/promises';
 import path from 'node:path';
 import { tmpdir } from 'node:os';
 import yauzl from 'yauzl';
@@ -113,17 +113,23 @@ export async function readSourceText(res: Response, url: string, maxBytes: numbe
 }
 
 export interface Evidence { hash: string; path: string; url: string; observedAt: string }
+function objectPath(root: string, digest: string): string { return path.join(root, 'sec', 'objects', digest.slice(0, 2), digest); }
 export async function archiveEvidence(url: string, content: string, root = config().RAW_DATA_DIR): Promise<Evidence> {
 	const digest = hash(content);
-	const dir = path.join(root, 'sec', 'objects', digest.slice(0, 2));
+	const target = objectPath(root, digest), dir = path.dirname(target);
 	await mkdir(dir, { recursive: true });
-	const target = path.join(dir, digest);
 	const temp = await mkdtemp(path.join(dir, '.write-'));
 	try {
 		await writeStored(path.join(temp, 'body'), content);
 		await publishEvidence(path.join(temp, 'body'), target, digest);
 	} finally { await rm(temp, { recursive: true, force: true }); }
 	return { hash: digest, path: target, url, observedAt: new Date().toISOString() };
+}
+
+/** Evidence for content nothing reads back: same address as an archived object, but no file is written. */
+export function hashEvidence(url: string, content: string, root = config().RAW_DATA_DIR): Evidence {
+	const digest = hash(content);
+	return { hash: digest, path: objectPath(root, digest), url, observedAt: new Date().toISOString() };
 }
 
 async function publishEvidence(staged: string, target: string, digest: string): Promise<void> {
@@ -133,24 +139,25 @@ async function publishEvidence(staged: string, target: string, digest: string): 
 		const existing = createHash('sha256');
 		for await (const chunk of await openStored(target)) existing.update(chunk);
 		if (existing.digest('hex') !== digest) throw new Error('corrupt SEC evidence object');
+		// Re-observed objects restart the SEC archive prune grace window.
+		const now = new Date();
+		await utimes(target, now, now);
 	}
 }
 
 export const MAX_SUBMISSION_BYTES = 1024 ** 3;
 export const MAX_HEADER_BYTES = 1024 ** 2;
-export async function fetchFinancialSubmission(url: string, accession: string) {
-	return request(url, (res) => archiveFinancialSubmission(res, url, accession));
+export async function fetchFinancialSubmission(url: string, accession: string, retain: boolean) {
+	return request(url, (res) => archiveFinancialSubmission(res, url, accession, { retain }));
 }
 
-/** Retain at most 1 MiB of header; the complete original goes directly to disk. */
+/** Retain at most 1 MiB of header; the complete original goes directly to disk, or is only hashed when nothing will read it. */
 export async function archiveFinancialSubmission(res: Response, url: string, accession: string,
-	root = config().RAW_DATA_DIR, maxBytes = MAX_SUBMISSION_BYTES): Promise<{ header: string; evidence: Evidence }> {
+	{ retain = true, root = config().RAW_DATA_DIR, maxBytes = MAX_SUBMISSION_BYTES }: { retain?: boolean; root?: string; maxBytes?: number } = {}): Promise<{ header: string; evidence: Evidence }> {
 	if (!res.body) throw new Error('empty source response');
 	const objects = path.join(root, 'sec', 'objects');
 	let temp: string | undefined;
 	try {
-		await mkdir(objects, { recursive: true });
-		temp = await mkdtemp(path.join(objects, '.write-'));
 		const digest = createHash('sha256');
 		let size = 0, prefix = Buffer.alloc(0), header: string | undefined;
 		const body = res.body;
@@ -174,13 +181,18 @@ export async function archiveFinancialSubmission(res: Response, url: string, acc
 			}
 			if (header === undefined) throw new Error(`missing complete SEC header: ${url}`);
 		}
-		await writeStored(path.join(temp, 'body'), chunks());
+		if (retain) {
+			await mkdir(objects, { recursive: true });
+			temp = await mkdtemp(path.join(objects, '.write-'));
+			await writeStored(path.join(temp, 'body'), chunks());
+		} else for await (const chunk of chunks()) void chunk;
 		if (header === undefined) throw new Error(`missing complete SEC header: ${url}`);
 		const value = digest.digest('hex');
-		const dir = path.join(objects, value.slice(0, 2));
-		await mkdir(dir, { recursive: true });
-		const target = path.join(dir, value);
-		await publishEvidence(path.join(temp, 'body'), target, value);
+		const target = objectPath(root, value);
+		if (temp) {
+			await mkdir(path.dirname(target), { recursive: true });
+			await publishEvidence(path.join(temp, 'body'), target, value);
+		}
 		return { header, evidence: { hash: value, path: target, url, observedAt: new Date().toISOString() } };
 	} finally {
 		await res.body.cancel().catch(() => {});

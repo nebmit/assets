@@ -31,7 +31,7 @@ describe('streamed financial filings', () => {
 		const expected = createHash('sha256').update(header);
 		const block = Buffer.alloc(64 * 1024, 'x');
 		for (let i = 0; i < blocks; i++) expected.update(block);
-		const first = await archiveFinancialSubmission(generatedSubmission(blocks), url, accession, dir);
+		const first = await archiveFinancialSubmission(generatedSubmission(blocks), url, accession, { root: dir });
 		expect(MAX_SUBMISSION_BYTES).toBe(1024 ** 3);
 		expect(first.header).toBe(header);
 		expect(first.evidence.hash).toBe(expected.digest('hex'));
@@ -41,7 +41,7 @@ describe('streamed financial filings', () => {
 				for await (const chunk of await openStored(first.evidence.path)) { restored.update(chunk); restoredBytes += chunk.length; }
 				expect(restored.digest('hex')).toBe(first.evidence.hash);
 				expect(restoredBytes).toBe(Buffer.byteLength(header) + blocks * 64 * 1024);
-		const second = await archiveFinancialSubmission(generatedSubmission(blocks), url, accession, dir);
+		const second = await archiveFinancialSubmission(generatedSubmission(blocks), url, accession, { root: dir });
 		expect(second.evidence.path).toBe(first.evidence.path);
 		expect(evidenceVersions({ documents: [first.evidence] }, second.evidence)).toEqual([first.evidence]);
 		expect((await readdir(path.join(dir, 'sec', 'objects'))).some((name) => name.startsWith('.write-'))).toBe(false);
@@ -53,10 +53,21 @@ describe('streamed financial filings', () => {
 			if (offset === text.length) controller.close();
 			else { controller.enqueue(Buffer.from(text.slice(offset, offset + 7))); offset = Math.min(text.length, offset + 7); }
 		} }));
-		const result = await archiveFinancialSubmission(res, url, accession, await root());
+		const result = await archiveFinancialSubmission(res, url, accession, { root: await root() });
 		expect(result.evidence.hash).toBe(hash(text));
 		expect(await readStoredText(result.evidence.path)).toBe(text);
 		expect(parseFinancialHeader(result.header, accession)?.toISOString()).toBe('2024-02-15T17:00:00.000Z');
+	});
+	it('hashes without writing when the original will not be read again', async () => {
+		const dir = await root(), text = header + '\n<DOCUMENT>exhibit</DOCUMENT>\n';
+		const retained = await archiveFinancialSubmission(new Response(text), url, accession, { root: await root() });
+		const hashed = await archiveFinancialSubmission(new Response(text), url, accession, { root: dir, retain: false });
+		expect(hashed.header).toBe(retained.header);
+		expect(hashed.evidence.hash).toBe(retained.evidence.hash);
+		expect(hashed.evidence.path).toBe(path.join(dir, 'sec', 'objects', hashed.evidence.hash.slice(0, 2), hashed.evidence.hash));
+		await expect(readdir(dir)).resolves.toEqual([]);
+		await expect(archiveFinancialSubmission(new Response(header.replace('</SEC-HEADER>', '')), url, accession, { root: dir, retain: false })).rejects.toThrow('missing complete');
+		await expect(archiveFinancialSubmission(new Response(header), url, accession, { root: dir, retain: false, maxBytes: 10 })).rejects.toBeInstanceOf(SourceSizeError);
 	});
 	it('removes staging files after interruptions and never publishes partial originals', async () => {
 		const dir = await root(); let reads = 0;
@@ -64,7 +75,7 @@ describe('streamed financial filings', () => {
 			if (reads++ === 0) controller.enqueue(Buffer.from(header));
 			else controller.error(new Error('connection lost'));
 		} }));
-		await expect(archiveFinancialSubmission(res, url, accession, dir)).rejects.toBeInstanceOf(SecTransportError);
+		await expect(archiveFinancialSubmission(res, url, accession, { root: dir })).rejects.toBeInstanceOf(SecTransportError);
 		expect(await readdir(path.join(dir, 'sec', 'objects'))).toEqual([]);
 	});
 	it('rejects oversized, mismatched, incomplete and oversized-header responses without publishing', async () => {
@@ -75,18 +86,18 @@ describe('streamed financial filings', () => {
 			[header.replace('20240215120000', 'invalid'), 'invalid acceptance']
 		]) {
 			const dir = await root();
-			await expect(archiveFinancialSubmission(new Response(text), url, accession, dir)).rejects.toThrow(expected);
+			await expect(archiveFinancialSubmission(new Response(text), url, accession, { root: dir })).rejects.toThrow(expected);
 			expect(await readdir(path.join(dir, 'sec', 'objects'))).toEqual([]);
 		}
 		const dir = await root();
-		await expect(archiveFinancialSubmission(new Response(header), url, accession, dir, 10)).rejects.toThrow(`observed_bytes=${Buffer.byteLength(header)}; limit_bytes=10`);
+		await expect(archiveFinancialSubmission(new Response(header), url, accession, { root: dir, maxBytes: 10 })).rejects.toThrow(`observed_bytes=${Buffer.byteLength(header)}; limit_bytes=10`);
 		expect(await readdir(path.join(dir, 'sec', 'objects'))).toEqual([]);
 	});
 	it('detects a corrupt pre-existing object and cleans staging files', async () => {
 		const dir = await root();
-		const first = await archiveFinancialSubmission(new Response(header), url, accession, dir);
+		const first = await archiveFinancialSubmission(new Response(header), url, accession, { root: dir });
 		await writeFile(first.evidence.path, 'corrupt');
-		await expect(archiveFinancialSubmission(new Response(header), url, accession, dir)).rejects.toThrow('corrupt SEC evidence');
+		await expect(archiveFinancialSubmission(new Response(header), url, accession, { root: dir })).rejects.toThrow('corrupt SEC evidence');
 		expect((await readdir(path.join(dir, 'sec', 'objects'))).some((name) => name.startsWith('.write-'))).toBe(false);
 	});
 });
@@ -98,7 +109,7 @@ describe('source retry policy', () => {
 		expect(calls).toBe(1);
 		calls = 0;
 		const dir = await root();
-		await expect(retryTransport(async () => { calls++; return archiveFinancialSubmission(new Response(header), url, '0000005272-24-000099', dir); })).rejects.toThrow('accession mismatch');
+		await expect(retryTransport(async () => { calls++; return archiveFinancialSubmission(new Response(header), url, '0000005272-24-000099', { root: dir }); })).rejects.toThrow('accession mismatch');
 		expect(calls).toBe(1);
 	});
 	it('retries transport failures with backoff and stops after four attempts', async () => {
