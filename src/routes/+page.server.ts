@@ -1,6 +1,8 @@
 import { assetCatalog } from '$lib/server/assets/catalog.js';
 import { getDb } from '$lib/server/db/index.js';
 import { getFeedPayload } from '$lib/server/feed/cache.js';
+import { config } from '$lib/server/config.js';
+import { isoDate, snapshotFreshness } from '$lib/server/util.js';
 import type { PageServerLoad } from './$types.js';
 
 /**
@@ -13,9 +15,10 @@ import type { PageServerLoad } from './$types.js';
 export const load: PageServerLoad = async () => {
 	try {
 		const payload = await getFeedPayload(getDb());
-		return { payload, catalog: await assetCatalog(getDb()), dbError: false };
+		const freshness = payload ? snapshotFreshness(payload.runDate, isoDate(new Date(), config().TZ)) : null;
+				return { payload, freshness, catalog: await assetCatalog(getDb()), dbError: false };
 	} catch (err) {
 		console.error('feed load failed', err);
-		return { payload: null, catalog: [], dbError: true };
+		return { payload: null, freshness: null, catalog: [], dbError: true };
 	}
 };

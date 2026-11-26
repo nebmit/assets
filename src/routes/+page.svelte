@@ -71,17 +71,7 @@
 		const asset = catalogById.get(entry.assetId);
 		return [entry.name, asset?.ticker, asset?.isin, asset?.wkn].some((v) => v?.toLowerCase().includes(query.toLowerCase()));
 	}
-	/** Freshest price date across today's feed; the run date is the fallback. */
-	const asOfDate = $derived(
-		allCards.reduce<string | null>(
-			(latest, c) =>
-				c.priceDate !== null &&
-				(latest === null || c.priceDate > latest)
-					? c.priceDate
-					: latest,
-			null,
-		) ?? payload?.runDate,
-	);
+	const asOfDate = $derived(payload?.runDate);
 
 	const tab = $derived.by(() => {
 		const value = page.url.searchParams.get("tab");
@@ -267,6 +257,14 @@
 	connectorName={data.connectorName}
 	mcpServerUrl={data.mcpServerUrl}
 />
+
+{#if asOfDate && data.freshness?.stale}
+	<div class="border-b bg-amber-100 px-[18px] py-3 text-sm text-amber-950 sm:px-[22px] lg:px-8">
+		<strong>Dashboard out of date.</strong>
+				Last successful signal run: <time class="font-semibold" datetime={asOfDate}>{asOfDate}</time> ({data.freshness.daysOld} days ago).
+				Showing the last published results until a new run succeeds.
+	</div>
+{/if}
 
 {#if tab === "watchlist"}
 	<div

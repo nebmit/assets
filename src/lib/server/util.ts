@@ -9,6 +9,12 @@ export function isoDate(date: Date, timeZone: string): string {
 	return new Intl.DateTimeFormat('en-CA', { timeZone }).format(date);
 }
 
+// Daily publication: allow yesterday's snapshot while today's worker is running.
+export function snapshotFreshness(runDate: string, today: string) {
+	const daysOld = daysBetween(runDate, today);
+	return { daysOld, stale: daysOld >= 2 };
+}
+
 export function addDays(isoDay: string, days: number): string {
 	const d = new Date(`${isoDay}T12:00:00Z`);
 	d.setUTCDate(d.getUTCDate() + days);
