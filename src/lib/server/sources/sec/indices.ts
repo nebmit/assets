@@ -27,7 +27,11 @@ export function parseIndexHoldings(text: string, expectedFund: string): { asOf: 
 	if (!match) throw new Error('Invalid holdings as-of date');
 	const month = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'].indexOf(match[1]) + 1;
 	const asOf = date.parse(`${match[3]}-${String(month).padStart(2, '0')}-${match[2]}`);
-	const rows = parse(lines.slice(heading).join('\n'), { columns: true, skip_empty_lines: true }) as Record<string, string>[];
+	// The optional legal notice is one quoted CSV field and can span multiple lines.
+	const table = lines.slice(heading).join('\n').replace(
+		/\n"The content contained herein is owned or licensed by BlackRock\b(?:[^"]|"")*"\n*$/, ''
+	);
+	const rows = parse(table, { columns: true, skip_empty_lines: true }) as Record<string, string>[];
 	if (!rows.length || !['Asset Class', 'Exchange'].every((key) => key in rows[0])) throw new Error('Missing holdings classification columns');
 	const holdings = new Map<string, IndexHolding>();
 	for (const row of rows) {

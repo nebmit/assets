@@ -13,6 +13,13 @@ describe('index universe', () => {
 		] });
 		expect(parseIndexHoldings(ijh, indexSources.sp400.name).holdings.map((h) => h.ticker)).toEqual(['TWLO', 'ILMN', 'FTI']);
 	});
+	it('accepts only a trailing single-field BlackRock notice without relaxing holdings validation', () => {
+		const footer = '\n\n"The content contained herein is owned or licensed by BlackRock and/or its third-party information providers.\nAll rights reserved, including \"\"marks\"\"."\n';
+		const parse = (text: string) => parseIndexHoldings(text, indexSources.sp400.name);
+		expect(parse(ijh + footer)).toEqual(parse(ijh));
+		expect(() => parse(ijh + '\n"BROKEN"' + footer)).toThrow('Invalid Record Length');
+		expect(() => parse(ijh + footer + '"BROKEN"')).toThrow('Invalid Record Length');
+	});
 	it('rejects wrong funds, missing dates, schema drift, duplicate stocks and truncated rows', () => {
 		expect(() => parseIndexHoldings(ivv, indexSources.sp400.name)).toThrow('Unexpected');
 		expect(() => parseIndexHoldings(ivv.replace('Fund Holdings as of', 'Unknown'), indexSources.sp500.name)).toThrow('as-of');
